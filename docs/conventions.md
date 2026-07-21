@@ -72,7 +72,7 @@ Custom relative names: pass any string (`"sensors/imu"`) or an absolute `"/..."`
 
 | Variable | Meaning |
 |----------|---------|
-| `ROSIE_CONNECT` | Zenoh endpoint, e.g. `tcp/127.0.0.1:7447` |
+| `ROSIE_CONNECT` | Host Zenoh endpoint (default `tcp/127.0.0.1:7447`). Override for a remote router. |
 | `ROSIE_ROBOT` | Default Session robot id |
 | `ROSIE_FLEET` | Default Session fleet id (optional) |
 | `ROSIE_PARAM_<NAME>` | Override a local parameter (`declare_parameter`) |
@@ -119,7 +119,9 @@ the robot defines (document it in the robot README).
 - Host: `rosie fleet list|wait|topics`, `rosie topic list|echo`, `rosie bag …`,
   or `from rosie import Fleet, load_manifest`.
 - Fleet-wide signals: `estop`, `coord/leader` under `{fleet}/_fleet/...`.
-- Set `ROSIE_CONNECT` on hosts so sessions attach to the router (not peer scout).
+- Host sessions default to the local router (`tcp/127.0.0.1:7447`). Set
+  `ROSIE_CONNECT` only when the router is on another machine. MCU robots use
+  `robot.yaml` `network.connect` with the router host’s LAN IP.
 
 ## What Rosie intentionally omits
 

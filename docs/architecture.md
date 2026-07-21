@@ -29,8 +29,9 @@ travel router) that you control — not home Wi‑Fi and not a robot’s SoftAP.
 1. Power the dedicated AP (fixed SSID / password for the fleet).
 2. Laptop and all robots join that SSID as **stations**.
 3. Host runs `rosie router` (zenohd) listening on `tcp/0.0.0.0:7447`.
-4. Every robot opens a Zenoh **client** to `tcp/<host-ip>:7447`
-   (`ROSIE_CONNECT` on hosts).
+4. Every **MCU** opens a Zenoh **client** to `tcp/<host-lan-ip>:7447`
+   (`robot.yaml` `network.connect`). Host tools on the router machine default
+   to `tcp/127.0.0.1:7447` (override with `ROSIE_CONNECT` if the router is remote).
 
 Discovery is brokered through the router. Application membership uses
 `presence` and `rosie fleet list`. See [Fleet networking](fleet-networking.md).

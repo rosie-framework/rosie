@@ -66,6 +66,17 @@ def cmd_router(args: argparse.Namespace) -> int:
 
     print(f"Starting zenohd ({zenohd})")
     print(f"  config: {config}")
+    print("  host tools default to tcp/127.0.0.1:7447 (no ROSIE_CONNECT needed)")
+    lan = _local_ipv4s()
+    if lan:
+        print("  put one of these in robot.yaml network.connect (MCU → this laptop):")
+        for ip in lan:
+            print(f"    tcp/{ip}:7447")
+    else:
+        print(
+            "  (could not detect LAN IP — set robot.yaml network.connect to "
+            "tcp/<this-laptop-ip>:7447)"
+        )
     try:
         return subprocess.call(cmd)
     except KeyboardInterrupt:
@@ -118,13 +129,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             f"not on PATH or at {zenohd_cache_path()}; run `rosie setup`",
         )
 
-    # Connect endpoint
-    connect = args.connect or os.environ.get("ROSIE_CONNECT", "tcp/127.0.0.1:7447")
+    # Connect endpoint (host default: local router)
+    from rosie.session import DEFAULT_CONNECT, resolve_connect
+
+    connect = resolve_connect(args.connect)
     host, port = _parse_tcp_locator(connect)
     if host is None:
-        check("ROSIE_CONNECT parse", False, f"could not parse {connect!r}")
+        check("connect locator parse", False, f"could not parse {connect!r}")
     else:
-        check("ROSIE_CONNECT", True, connect)
+        src = (
+            "--connect"
+            if args.connect
+            else ("ROSIE_CONNECT" if os.environ.get("ROSIE_CONNECT") else f"default {DEFAULT_CONNECT}")
+        )
+        check("host connect", True, f"{connect} ({src})")
         reachable = _tcp_reachable(host, port, timeout=0.5)
         check(
             "zenohd listen endpoint",
@@ -132,14 +150,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             f"{host}:{port}" + ("" if reachable else " (not accepting connections)"),
         )
 
-    # SoftAP solo-fallback / common IP hint
-    softap_ips = _local_ipv4s()
-    if any(ip.startswith("192.168.4.") for ip in softap_ips):
-        check("SoftAP-like address (solo fallback)", True, ", ".join(softap_ips))
+    lan = _local_ipv4s()
+    if lan:
+        print(
+            "[--] MCU robots should use network.connect in robot.yaml, e.g. "
+            + " or ".join(f"tcp/{ip}:7447" for ip in lan[:3])
+        )
+    if any(ip.startswith("192.168.4.") for ip in lan):
+        check("SoftAP-like address (solo fallback)", True, ", ".join(lan))
     else:
         print(
-            f"[--] SoftAP-like address — local IPv4: "
-            f"{', '.join(softap_ips) or 'none'} "
+            f"[--] SoftAP-like address — local IPv4: {', '.join(lan) or 'none'} "
             "(solo SoftAP often uses 192.168.4.2; fleets use a dedicated AP — "
             "see docs/fleet-networking.md)"
         )
@@ -169,9 +190,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"[--] default identity — {identity} (ROSIE_ROBOT / ROSIE_FLEET)")
     if not os.environ.get("ROSIE_CONNECT") and not args.connect:
         print(
-            "[--] ROSIE_CONNECT unset — host sessions may peer-scout; "
-            "set ROSIE_CONNECT=tcp/<router-host>:7447 for fleets "
-            "(docs/fleet-networking.md)"
+            f"[--] ROSIE_CONNECT unset — host sessions use {DEFAULT_CONNECT} "
+            "(local router). Override for a remote router host."
         )
 
     print()

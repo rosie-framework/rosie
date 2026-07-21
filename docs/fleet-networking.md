@@ -31,8 +31,12 @@ Bring-up:
 1. Power the dedicated AP (fixed SSID / password you document for the fleet).
 2. Join the laptop (and any Linux robots) to that SSID.
 3. On the laptop (or a Pi on the same LAN): `rosie router`.
-4. Point every robot’s Zenoh connect endpoint at the host running the router
-   (e.g. `tcp/<laptop-ip>:7447`). Set `ROSIE_CONNECT` the same way on hosts.
+   It prints suggested `network.connect` values (LAN IP) for MCU `robot.yaml`.
+   Host tools on that machine default to `tcp/127.0.0.1:7447` — no
+   `ROSIE_CONNECT` required for the common case.
+4. Point every **robot’s** Zenoh connect endpoint at the host running the router
+   (e.g. `tcp/<laptop-ip>:7447` in `robot.yaml`). Only set `ROSIE_CONNECT` on
+   hosts when the router is **not** on localhost (remote router machine).
 5. Flash / boot robots as **Wi‑Fi stations** on that SSID (not as SoftAPs).
    Firmware: `network.mode: station` in `robot.yaml` (DiffDriveStack) or
    `rosie::wifiStation(ssid, password)` for custom glue.
@@ -65,8 +69,9 @@ travel router when you can — laptop SoftAP behavior varies by OS.
 | Who is alive? | Application `presence` + `rosie fleet list` / `Fleet.robots()` |
 | Who sees whom? | Topic paths under `{fleet}/{robot}/…` and `{fleet}/_fleet/…` — subscribe only to what you need |
 
-Always set `ROSIE_CONNECT` (or pass `connect=`) on host sessions in fleet mode so
-the host does not fall back to peer scouting.
+Host sessions default to `tcp/127.0.0.1:7447` (local `rosie router`). Override with
+`ROSIE_CONNECT` or `connect=` only when the router runs on another machine.
+MCU `robot.yaml` `network.connect` must still use the router host’s **LAN** IP.
 
 ## Fleet-native tooling
 

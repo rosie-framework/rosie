@@ -117,10 +117,37 @@ class RobotConfig:
         return str(self.raw.get("network", {}).get("mode", "softap"))
 
 
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge overlay onto a shallow copy of base (dicts only)."""
+    out: dict[str, Any] = dict(base)
+    for key, value in overlay.items():
+        if (
+            key in out
+            and isinstance(out[key], dict)
+            and isinstance(value, dict)
+        ):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
 def load_robot_config(path: str | Path) -> RobotConfig:
-    """Parse and validate a robot.yaml (or .yml / .json)."""
+    """Parse and validate a robot.yaml (or .yml / .json).
+
+    If ``robot.local.yaml`` (or ``.yml`` / ``.json``) sits next to the primary
+    file, it is deep-merged on top.
+    """
     p = Path(path).expanduser().resolve()
     raw = _load_yaml_or_json(p)
+    for name in ("robot.local.yaml", "robot.local.yml", "robot.local.json"):
+        local = p.parent / name
+        if local.is_file():
+            overlay = _load_yaml_or_json(local)
+            if not isinstance(overlay, dict):
+                raise ValueError(f"{local}: expected mapping at top level")
+            raw = _deep_merge(raw, overlay)
+            break
     validate_robot_config(raw)
     return RobotConfig(raw=raw, path=p)
 

@@ -14,6 +14,15 @@ from .messages import decode_json, encode_json, stamp_now, with_stamp
 
 _RESERVED_ROBOT = "_fleet"
 
+# Host sessions default to the local router. MCU / remote robots still need an
+# explicit LAN locator in robot.yaml (or ROSIE_CONNECT when the host is remote).
+DEFAULT_CONNECT = "tcp/127.0.0.1:7447"
+
+
+def resolve_connect(connect: str | None = None) -> str:
+    """constructor arg → ROSIE_CONNECT → local router default."""
+    return connect or os.environ.get("ROSIE_CONNECT") or DEFAULT_CONNECT
+
 
 def _normalize_id(value: str, *, label: str) -> str:
     value = str(value).strip().strip("/")
@@ -49,6 +58,7 @@ class Session:
 
     Resolution order for connect / robot / fleet:
       constructor arg → env (ROSIE_CONNECT / ROSIE_ROBOT / ROSIE_FLEET) → defaults
+      (connect defaults to ``tcp/127.0.0.1:7447`` — local ``rosie router``)
     """
 
     def __init__(
@@ -66,11 +76,10 @@ class Session:
         self.fleet = _normalize_fleet(
             fleet if fleet is not None else env_fleet
         )
-        self.connect = connect or os.environ.get("ROSIE_CONNECT")
+        self.connect = resolve_connect(connect)
 
         conf = zenoh.Config()
-        if self.connect:
-            conf.insert_json5("connect/endpoints", f'["{self.connect}"]')
+        conf.insert_json5("connect/endpoints", f'["{self.connect}"]')
         self.session = zenoh.open(conf)
 
         self._subs: list[Any] = []

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from collections.abc import Sequence
@@ -13,6 +12,7 @@ import zenoh
 
 from .manifest import FleetManifest
 from .messages import decode_json
+from .session import resolve_connect
 from .std_msgs import Cmd, LeaderClaim, RobotPresence
 
 
@@ -50,11 +50,10 @@ class Fleet:
 
     def __init__(self, fleet: str, connect: str | None = None):
         self.fleet = _normalize_fleet(fleet)
-        self.connect = connect or os.environ.get("ROSIE_CONNECT")
+        self.connect = resolve_connect(connect)
 
         conf = zenoh.Config()
-        if self.connect:
-            conf.insert_json5("connect/endpoints", f'["{self.connect}"]')
+        conf.insert_json5("connect/endpoints", f'["{self.connect}"]')
         self._session = zenoh.open(conf)
         self._subs: list[Any] = []
         self._presence_sub: Any | None = None

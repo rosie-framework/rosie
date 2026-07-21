@@ -8,10 +8,16 @@ From the Rosie repo root (or any project):
 pip install -e python
 # host + MCU flash/build tooling:
 # pip install -e "python[mcu]"
+# host camera snap / live view in `rosie drive` (OpenCV):
+# pip install -e "python[camera]"
+# both:
+# pip install -e "python[mcu,camera]"
 ```
 
 This installs the `rosie` CLI, the Python client (`eclipse-zenoh`), and (with
-`[mcu]`) PlatformIO.
+`[mcu]`) PlatformIO. The optional `[camera]` extra installs OpenCV for host-side
+JPEG viewing (`snap` / `cam` in `rosie drive`); robots can still publish
+`camera/compressed` without it.
 
 ## 2. Set up the bus (once, while online)
 
@@ -135,7 +141,7 @@ Diagram: [Architecture](architecture.md).
 
 | Variable | Meaning |
 |----------|---------|
-| `ROSIE_CONNECT` | Zenoh endpoint for sessions, e.g. `tcp/127.0.0.1:7447` (set this on fleets) |
+| `ROSIE_CONNECT` | Zenoh endpoint for host sessions (default `tcp/127.0.0.1:7447`). Set when the router is remote. MCU robots use `robot.yaml` `network.connect` (LAN IP). |
 | `ROSIE_ROBOT` | Default robot id for sessions / `rosie teleop` |
 | `ROSIE_FLEET` | Optional default fleet id |
 | `ROSIE_ZENOHD` | Override path to a `zenohd` binary |
@@ -153,6 +159,7 @@ More identity and topic rules: [Conventions](conventions.md).
 | `pip` / `rosie setup` fails offline | Demo AP often has no internet — install and `rosie setup` first |
 | `zenohd not found` | Run `rosie setup`, or put `zenohd` on PATH / set `ROSIE_ZENOHD` |
 | PlatformIO missing | `pip install "rosie[mcu]"` |
+| `snap` / `cam` fails or prints “opencv not installed” | `pip install "rosie[camera]"` (OpenCV for host viewing only) |
 | Publish/subscribe wrong keys | Use relative names under `Session(robot=...)`, or absolute `/...` ([Conventions](conventions.md)) |
 | Firmware JSON publish fails / truncated | Payload exceeds ~384-byte MCU buffer ([Firmware](firmware.md)) |
 | Trying to run two SoftAP cars at once | SoftAP is solo-only — use a [dedicated AP](fleet-networking.md) |

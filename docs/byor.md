@@ -9,7 +9,8 @@ base path, see [Mobile base](mobile-base.md) and [Drivers](drivers.md).
 ## 1. Install Rosie
 
 ```bash
-pip install -e "/path/to/rosie/python[mcu]"
+pip install -e "/path/to/rosie/python[mcu]"           # flash / build
+# pip install -e "/path/to/rosie/python[mcu,camera]"  # + OpenCV for drive snap/cam
 rosie setup                 # fetch zenohd while online
 ```
 

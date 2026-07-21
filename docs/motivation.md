@@ -5,9 +5,9 @@
 Rosie aims to be **modular and powerful like ROS 2**, while optimizing for goals
 where the existing alternatives (ROS2) fall short:
 
-1. **Simplicity to install** — minutes to a working bus on a laptop.
-2. **Simplicity to work with** — small mental model, one robot description file,
-   batteries-included mobile base for MCU cars.
+1. **Easy to install and get started** — minutes to a working bus on a laptop.
+2. **Straightforward to work with** — small mental model, one robot description file,
+   batteries-included mobile base for robot cars.
 3. **First-class support for heterogeneous robot fleets** — robot and fleet as
    real identity, MCU and Linux robots on the same brokered bus.
 
@@ -17,7 +17,7 @@ professional robotics projects.
 
 ## Why choose Rosie
 
-### 1. Simplicity to install
+### 1. Easy to install and get started
 
 1. **Install in minutes, not hours.**  
    `pip install rosie` (optional `[mcu]`) on macOS, Linux, or Windows. No
@@ -29,7 +29,7 @@ professional robotics projects.
    router for fleets, or SoftAP for a single robot) → `rosie router` → teleop.
    Teaching labs and desk demos do not need an Ubuntu robot PC.
 
-### 2. Simplicity to work with
+### 2. Straightforward to work with
 
 1. **One schema source for host and MCU.**  
    Edit `interfaces/std_msgs.yaml` once; codegen writes Python and C++. JSON

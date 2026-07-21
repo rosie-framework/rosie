@@ -168,6 +168,10 @@ rosie teleop --robot mybot
 rosie tune --config robot.yaml
 ```
 
+Drive REPL includes optional camera `snap` / `cam` when the robot publishes
+JPEG. For the OpenCV viewer on the host: `pip install "rosie[camera]"` (robots
+can publish `camera/compressed` without that extra).
+
 ### `rosie drive`
 
 Interactive REPL over `rosie.Robot` for a MobileBase / DiffDriveStack robot.

@@ -1,0 +1,90 @@
+# Rosie standard messages — single source of truth.
+# Regenerate bindings: python3 interfaces/gen.py
+#
+# Field types: f32, f64, bool, str, i32, u32
+# Optional fields: append ? (e.g. value: f32?)
+#
+# Every generated message also gets a top-level `stamp` (f64 seconds).
+# Session.publish / publishJson fill stamp when missing.
+# Prefer these types for cross-robot contracts; robot-specific payloads
+# can still use plain JSON dicts when needed.
+# stamp: wall-clock seconds on laptop; MCU typically uses millis()/1000.0
+
+# ---------------------------------------------------------------------------
+# Twist — planar body velocity command (typically on cmd_vel)
+# ---------------------------------------------------------------------------
+# Used by teleop and other velocity controllers. Ground robots map this to
+# motor PWM. Keep 2D for MCU-friendly SoftAP payloads; add a 3D type later
+# for drones rather than widening this message.
+#   v: linear speed along robot forward axis (m/s); + forward, - reverse
+#   w: yaw rate about vertical axis (rad/s); + left/CCW, - right/CW
+Twist:
+  v: f32
+  w: f32
+
+# ---------------------------------------------------------------------------
+# Pose2D — planar pose estimate (typically on pose)
+# ---------------------------------------------------------------------------
+# Robot frame / odom frame as defined by the robot. theta is yaw only.
+#   x:     meters
+#   y:     meters
+#   theta: radians (yaw); convention is robot-defined (often +CCW from +x)
+Pose2D:
+  x: f32
+  y: f32
+  theta: f32
+
+# ---------------------------------------------------------------------------
+# Log — human-readable status / debug line (typically on log)
+# ---------------------------------------------------------------------------
+#   level: e.g. "info", "warn", "error" (convention, not enforced)
+#   msg:   free-form text
+Log:
+  level: str
+  msg: str
+
+# ---------------------------------------------------------------------------
+# Cmd — discrete command / mode switch (typically on cmd)
+# ---------------------------------------------------------------------------
+# Lightweight RPC-ish ops. Common ops on the car: "stop", "zero",
+# "heading_source", "camera_enable". Robots may define their own op strings.
+#   op:    command name
+#   value: optional numeric argument (bools may be sent as JSON bools instead)
+Cmd:
+  op: str
+  value: f32?
+
+# ---------------------------------------------------------------------------
+# Goto — planar goal point (typically on goto)
+# ---------------------------------------------------------------------------
+# Asks the robot (or a mission session) to drive to a waypoint in the same
+# frame as Pose2D. Completion / path following is robot policy, not this message.
+#   x: meters
+#   y: meters
+Goto:
+  x: f32
+  y: f32
+
+# ---------------------------------------------------------------------------
+# RobotPresence — robot heartbeat / membership (typically on presence)
+# ---------------------------------------------------------------------------
+# Published by each robot so hosts can discover live members of a fleet
+# (or a solo robot). status is a short string convention: "ready", "fault",
+# "offline". fleet_id is omitted/empty when the robot has no fleet.
+#   robot_id: this robot's id
+#   fleet_id: optional fleet id
+#   status:   lifecycle / health string
+RobotPresence:
+  robot_id: str
+  fleet_id: str?
+  status: str
+
+# ---------------------------------------------------------------------------
+# LeaderClaim — fleet coordinator claim (typically on _fleet/coord/leader)
+# ---------------------------------------------------------------------------
+# Stub for leader election / handoff. Higher term wins when comparing claims.
+#   robot_id: claimant
+#   term:     monotonic election term
+LeaderClaim:
+  robot_id: str
+  term: u32

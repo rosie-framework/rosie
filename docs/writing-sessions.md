@@ -1,0 +1,127 @@
+# Writing sessions (Python)
+
+A **Session** is a process-local Zenoh handle bound to a **robot** (and optional
+**fleet**). Sensors and commands are **topics** under that robot—not separate
+sessions per driver.
+
+For MobileBase robots, prefer the higher-level **`rosie.Robot`** helper or the
+`rosie drive` CLI (see [Mobile base → Host](mobile-base.md#host)). Raw
+`Session` remains the right tool for custom hosts and non-mobile robots.
+
+```python
+from rosie import Robot
+
+with Robot(config_path="robot.yaml") as bot:
+    bot.wait_for_pose()
+    bot.drive_route([(1.0, 0.0), (1.0, 1.0)])
+```
+
+```python
+from rosie import Session, topics
+from rosie.std_msgs import Twist
+
+session = Session(robot="demo", name="teleop")
+
+# Relative names → demo/cmd_vel
+session.publish_msg(topics.CMD_VEL, Twist(v=0.2, w=0.0))
+
+# Or publish a plain dict (stamp added if missing)
+session.publish(topics.CMD_VEL, {"v": 0.2, "w": 0.0})
+
+def on_pose(msg: dict) -> None:
+    print(msg)
+
+session.subscribe_json(topics.POSE, on_pose)
+session.spin()  # Ctrl-C to stop
+```
+
+Prefer a context manager so the connection closes cleanly:
+
+```python
+with Session(robot="demo", name="listener") as session:
+    session.subscribe_json(topics.POSE, print)
+    session.spin()
+```
+
+With a fleet:
+
+```python
+session = Session(robot="car1", fleet="lab")
+session.resolve_name("pose")          # → lab/car1/pose
+session.resolve_fleet_name("estop")   # → lab/_fleet/estop
+```
+
+## Robot / fleet and topic names
+
+| Form | Example | Resolved (`robot="demo"`) | With `fleet="lab"` |
+|------|---------|---------------------------|--------------------|
+| Relative | `"cmd_vel"` | `demo/cmd_vel` | `lab/demo/cmd_vel` |
+| Absolute | `"/global/estop"` | `global/estop` | `global/estop` |
+| Fleet-scoped | `publish_fleet("estop")` | (requires fleet) | `lab/_fleet/estop` |
+
+`session.resolve_name("cmd_vel")` returns the wire key for logging. See [Conventions](conventions.md).
+
+## Publish helpers
+
+| Method | Use when |
+|--------|----------|
+| `publish_msg(name, msg)` | Typed `std_msgs` objects (`Twist`, `Pose2D`, …) |
+| `publish(name, dict)` | Plain JSON dicts (stamp injected if missing) |
+| `publish(name, bytes)` | Raw payloads (JPEG, etc.) |
+| `publish_fleet(name, …)` | Fleet-wide topics under `{fleet}/_fleet/...` |
+
+## Subscribe helpers
+
+| Method | Payload |
+|--------|---------|
+| `subscribe_json(name, handler)` | `dict` |
+| `subscribe_bytes(name, handler)` | `bytes` |
+| `create_subscription(name, callback, msg_type=...)` | typed message when using generated types |
+| `create_fleet_subscription(...)` | fleet-scoped topics |
+
+## Parameters
+
+Local only (no remote parameter server):
+
+```python
+session.declare_parameter("max_speed", 0.5)
+speed = session.get_parameter("max_speed")
+# Override via env: ROSIE_PARAM_MAX_SPEED=0.3
+```
+
+## Timers
+
+```python
+def tick():
+    session.publish(topics.CMD_VEL, {"v": 0.0, "w": 0.0})
+
+session.create_timer(0.1, tick)
+session.spin()
+```
+
+## Topic constants
+
+`rosie.topics` holds relative suffixes: `POSE`, `LOG`, `CMD_VEL`, `GOTO`, `CMD`,
+`CAMERA_COMPRESSED`, `PRESENCE`. Full table: [Conventions](conventions.md).
+
+## Teleop
+
+Reusable WASD → `Twist` on `cmd_vel`:
+
+```python
+from rosie import Session
+from rosie.tools.teleop_twist import run_teleop
+
+with Session(robot="demo", name="teleop") as session:
+    run_teleop(session, v_fwd=0.25, v_turn=1.2)
+```
+
+Or: `rosie teleop --robot demo`. Pass `on_stop=` for robot-specific deadman
+(e.g. publish a `Cmd`). Speeds and key maps are caller policy.
+
+## Fleet helper
+
+For multi-robot discovery and coordination on the host, use `rosie.Fleet`
+(or `rosie fleet list` / `estop` / `leader`). Networking for fleets uses a
+**dedicated AP** (not SoftAP) — [Fleet networking](fleet-networking.md).
+See also [Conventions](conventions.md).

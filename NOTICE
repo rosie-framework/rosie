@@ -1,0 +1,24 @@
+Rosie third-party notices
+========================
+
+Rosie itself is MIT-licensed. The following components are fetched or
+installed at runtime and are not part of the Rosie source tree:
+
+zenohd (Eclipse Zenoh router)
+-----------------------------
+License: Apache-2.0 OR EPL-2.0
+Downloaded by `rosie setup` / `rosie router` from
+https://download.eclipse.org/zenoh/ into ~/.rosie/bin/
+Upstream: https://zenoh.io / https://github.com/eclipse-zenoh/zenoh
+
+PlatformIO Core (optional, rosie[mcu])
+-------------------------------------------
+License: Apache-2.0
+Installed via pip when using the firmware extra.
+Upstream: https://platformio.org
+
+eclipse-zenoh (Python client)
+-----------------------------
+License: Apache-2.0 OR EPL-2.0
+Pip dependency of Rosie.
+Upstream: https://github.com/eclipse-zenoh/zenoh-python

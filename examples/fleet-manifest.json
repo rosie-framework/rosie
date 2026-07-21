@@ -1,0 +1,11 @@
+{
+  "fleet": "lab",
+  "connect": "tcp/127.0.0.1:7447",
+  "defaults": {
+    "v_max": 0.3
+  },
+  "robots": [
+    {"id": "car1", "kind": "esp32-car", "status": "ready"},
+    {"id": "car2", "kind": "esp32-car", "status": "ready"}
+  ]
+}

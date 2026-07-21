@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rosie"
+version = "0.4.0"
+description = "Lightweight ROS2-inspired robotics framework over Zenoh"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+  "eclipse-zenoh>=1.0.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+camera = ["opencv-python-headless>=4.8"]
+mcu = ["platformio>=6", "pyserial>=3.5"]
+all = ["rosie[camera,mcu]"]
+
+[project.scripts]
+rosie = "rosie.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rosie*"]
+
+[tool.setuptools.package-data]
+rosie = ["data/*"]

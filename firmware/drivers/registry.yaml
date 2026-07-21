@@ -1,0 +1,75 @@
+# Rosie driver / base / network inventory
+# Validated by rosie.robot_config and printed by `rosie drivers list`.
+# status: supported | planned
+
+drivers:
+  - id: tb6612
+    category: motors
+    status: supported
+    description: TB6612FNG dual H-bridge (2 channels)
+    yaml_key: motors.driver
+    deps: []
+
+  - id: l298n
+    category: motors
+    status: planned
+    description: L298N dual H-bridge
+    yaml_key: motors.driver
+
+  - id: drv8833
+    category: motors
+    status: planned
+    description: DRV8833 dual H-bridge
+    yaml_key: motors.driver
+
+  - id: quad_encoder
+    category: encoders
+    status: supported
+    description: Quadrature A/B encoders via ESP32Encoder
+    yaml_key: encoders
+    deps: ["madhephaestus/ESP32Encoder"]
+
+  - id: mpu6050
+    category: imu
+    status: supported
+    description: MPU6050 gyro (yaw-rate fusion)
+    yaml_key: imu.chip
+    deps: []
+
+  - id: esp32s3_eye
+    category: camera
+    status: supported
+    description: ESP32-S3-EYE DVP pinout (also Freenove ESP32-S3 CAM clones)
+    yaml_key: camera.board
+    aliases: [freenove_esp32s3_cam]
+    deps: []
+
+  - id: diff_drive
+    category: base
+    status: supported
+    description: Differential-drive kinematics + odometry
+    yaml_key: base.type
+
+  - id: mecanum
+    category: base
+    status: planned
+    description: Mecanum / omni (4 channels)
+    yaml_key: base.type
+
+  - id: ackermann
+    category: base
+    status: planned
+    description: Ackermann steer + drive
+    yaml_key: base.type
+
+  - id: softap
+    category: network
+    status: supported
+    description: ESP32 SoftAP solo fallback
+    yaml_key: network.mode
+
+  - id: station
+    category: network
+    status: supported
+    description: Wi-Fi station (fleet / dedicated AP)
+    yaml_key: network.mode

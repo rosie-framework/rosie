@@ -1,0 +1,11 @@
+{
+  /// Zenoh router listen config for Rosie.
+  /// Fleets: laptop + robots join a dedicated AP as stations, then run
+  ///   rosie router
+  /// Solo SoftAP fallback: host joins MCU AP, then runs rosie router;
+  /// MCU client often uses tcp/192.168.4.2:7447
+  /// Escape hatch: zenohd -c tools/zenoh.json5
+  listen: {
+    endpoints: ["tcp/0.0.0.0:7447"]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  /// Default Zenoh router config used by `rosie router`.
+  /// Fleets: laptop + robots join a dedicated AP as stations, then run the router.
+  /// Solo SoftAP fallback: host joins MCU AP; MCU often uses tcp/192.168.4.2:7447
+  listen: {
+    endpoints: ["tcp/0.0.0.0:7447"]
+  }
+}

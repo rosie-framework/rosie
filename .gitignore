@@ -1,0 +1,8 @@
+.pio
+.cache
+**/__pycache__/
+*.pyc
+.DS_Store
+compile_commands.json
+python/build/
+*.egg-info/

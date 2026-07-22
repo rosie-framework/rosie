@@ -57,13 +57,30 @@ Cmd:
 # ---------------------------------------------------------------------------
 # Goto — planar goal point (typically on goto)
 # ---------------------------------------------------------------------------
-# Asks the robot (or a mission session) to drive to a waypoint in the same
-# frame as Pose2D. Completion / path following is robot policy, not this message.
-#   x: meters
-#   y: meters
+# Asks the robot to drive to a waypoint in the same frame as Pose2D.
+# Latest goal wins (preempts any in-progress goto). Hosts should set goal_id;
+# if omitted, MobileBase assigns one. Completion is signaled on nav_result
+# (pose.navigating / dist remain for progress).
+#   x:        meters
+#   y:        meters
+#   goal_id:  optional attempt id (echoed on pose + nav_result)
 Goto:
   x: f32
   y: f32
+  goal_id: i32?
+
+# ---------------------------------------------------------------------------
+# NavResult — terminal outcome of a goto attempt (typically on nav_result)
+# ---------------------------------------------------------------------------
+# Published once when AUTO navigation ends. status convention:
+#   "succeeded" | "canceled" | "aborted"
+#   goal_id: attempt id from Goto (or robot-assigned)
+#   x, y:    optional pose at completion (meters)
+NavResult:
+  goal_id: i32
+  status: str
+  x: f32?
+  y: f32?
 
 # ---------------------------------------------------------------------------
 # RobotPresence — robot heartbeat / membership (typically on presence)

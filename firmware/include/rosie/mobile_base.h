@@ -91,11 +91,12 @@ class MobileBase {
 
   void requestStop();
   void requestZero();
-  void requestGoto(float x, float y);
+  void requestGoto(float x, float y, int32_t goal_id = 0, bool has_goal_id = false);
   void injectCmdVel(float v, float w);
 
   DriveMode mode() const { return mode_; }
   bool navigating() const { return navigating_; }
+  int32_t activeGoalId() const { return active_goal_id_; }
   Pose2DState pose() const { return kinematics_.pose(); }
   float targetX() const { return target_x_; }
   float targetY() const { return target_y_; }
@@ -128,6 +129,8 @@ class MobileBase {
     bool zero_requested = false;
     bool goto_requested = false;
     float goto_x = 0, goto_y = 0;
+    int32_t goto_goal_id = 0;
+    bool goto_has_goal_id = false;
     float cmd_v = 0, cmd_w = 0;
     unsigned long last_cmd_vel_ms = 0;
     bool cmd_vel_seen = false;
@@ -138,6 +141,8 @@ class MobileBase {
   void driveTwist_(float v, float w);
   void teleopDrive_(float v, float w);
   void resetVelocity_();
+  void endNavigation_(const char* status);
+  void publishNavResult_(const char* status);
   void publishPose_();
   void publishPresence_();
   void publishControl_();
@@ -162,6 +167,7 @@ class MobileBase {
   int pub_cam_ = -1;
   int pub_presence_ = -1;
   int pub_control_ = -1;
+  int pub_nav_result_ = -1;
   bool ok_ = false;
   bool endpoints_ = false;
   bool gains_ops_registered_ = false;
@@ -169,6 +175,8 @@ class MobileBase {
   DriveMode mode_ = DriveMode::Idle;
   bool navigating_ = false;
   float target_x_ = 0, target_y_ = 0;
+  int32_t active_goal_id_ = 0;
+  int32_t next_goal_id_ = 1;
   bool imu_ok_ = false;
 
   float last_target_vel_[8] = {0};

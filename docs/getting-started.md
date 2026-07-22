@@ -8,16 +8,20 @@ From the Rosie repo root (or any project):
 pip install -e python
 # host + MCU flash/build tooling:
 # pip install -e "python[mcu]"
+# Pi / Jetson GPIO / I2C for `rosie run`:
+# pip install -e "python[linux]"
 # host camera snap / live view in `rosie drive` (OpenCV):
 # pip install -e "python[camera]"
-# both:
-# pip install -e "python[mcu,camera]"
+# or heavy extras:
+# pip install -e "python[mcu,camera,linux]"
 ```
 
-This installs the `rosie` CLI, the Python client (`eclipse-zenoh`), and (with
-`[mcu]`) PlatformIO. The optional `[camera]` extra installs OpenCV for host-side
-JPEG viewing (`snap` / `cam` in `rosie drive`); robots can still publish
-`camera/compressed` without it.
+This installs the `rosie` CLI, the Python client (`eclipse-zenoh`), and host tools
+including `rosie viz` and `rosie bag export` (MCAP). Optional `[mcu]` adds
+PlatformIO for MCU build/flash. Optional `[linux]` adds `lgpio` / `smbus2` for
+built-in Linux drivers (`rosie run`). Optional `[camera]` adds OpenCV for
+host-side JPEG viewing (`snap` / `cam` in `rosie drive`); robots can still
+publish `camera/compressed` without it.
 
 ## 2. Set up the bus (once, while online)
 
@@ -104,6 +108,22 @@ Full checklist: [BYOR](byor.md). Control / YAML / topics: [Mobile base](mobile-b
 Raw `MobileBase` (custom motors / wiring) is an escape hatch there — not the
 default path.
 
+### C. Ground robot — Linux native (`rosie run`)
+
+For a Pi / Jetson DIY base Rosie drives directly (no ROS). Install
+`pip install -e "python[linux]"` on the robot (or use a BYO Python
+`MotorDriver` with plain `pip install rosie`).
+
+```bash
+# robot.yaml with platform: linux + motors (tb6612 / pca9685 / python)
+rosie run --config robot.yaml --dry-run
+rosie run --config robot.yaml
+# laptop: rosie teleop / viz / fleet list — same as MCU
+```
+
+Details: [Mobile base → Linux native](mobile-base.md#linux-native-rosie-run).
+ROS robots use `rosie agent` instead: [Bridges](bridges.md).
+
 ## 5. Networking
 
 Choose how the laptop and robot(s) share a LAN with the router from step 3.
@@ -120,7 +140,12 @@ For one or more robots (including heterogeneous types):
    via firmware config / `ROSIE_CONNECT`.
 5. `rosie fleet list --fleet <id>` / teleop as usual.
 6. Optional: `rosie fleet wait --manifest …`, `rosie topic list --fleet <id>`,
-   `rosie bag record --fleet <id> -o run.rosiebag`.
+   `rosie bag record --fleet <id> -o run.rosiebag` (or `.rosiebag.gz`),
+   `rosie bag info run.rosiebag`.
+7. Optional spatial view: `rosie viz --fleet <id>` (opens a local browser map
+   of poses / trails). Solo SoftAP: `rosie viz --robot <id>`. Offline:
+   `rosie viz --bag run.rosiebag` (optional `--start` / `--end` / `--key`
+   filters, same as `rosie bag play`). Details: [Viz](viz.md).
 
 Full detail: [Fleet networking](fleet-networking.md).
 
@@ -180,9 +205,11 @@ MCU escape hatch: raw `pio …` from a PlatformIO robot directory. Details:
 
 - [Mobile base](mobile-base.md) — `robot.yaml`, DiffDriveStack, `rosie drive` / Host REPL
 - [Bring Your Own Robot](byor.md) — full MCU bring-up checklist
+- [Robots: native vs bridge](bridges.md) — `rosie agent` for ROS / commercial robots
 - [Drivers](drivers.md) — inventory (`rosie drivers list`)
 - [Fleet networking](fleet-networking.md) — dedicated AP, SoftAP fallback, discovery
 - [Writing sessions](writing-sessions.md)
+- [Viz](viz.md) — `rosie viz` browser map / bag scrub
 - [Conventions](conventions.md) — topics, units, robot/fleet identity
 - [Messages](messages.md) — std message catalog
 - [Firmware](firmware.md)

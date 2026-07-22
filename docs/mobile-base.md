@@ -143,16 +143,73 @@ and select via `control.velocity.type` (v1: `pid` only).
 See the reference car’s `robot.yaml`. Required: `robot`, `network`, `base`,
 `motors`. Optional: `encoders`, `imu`, `camera`, `control`.
 
-Inventory: [Drivers](drivers.md) / `rosie drivers list`.
+Inventory: [Drivers](drivers.md) / `rosie drivers list` (`--platform mcu|linux`).
+
+Set `platform: mcu` (default) or `platform: linux`. Shared sections (`robot`,
+`fleet`, `network.connect`, `base`, `control`) port across platforms; the
+`motors` / `encoders` / `imu` blocks are platform-specific (ESP32 GPIO vs Pi BCM
+/ I2C).
+
+## Linux native (`rosie run`)
+
+On a Pi or Jetson, Rosie can drive the base directly (no ROS) from `robot.yaml`:
+
+```yaml
+platform: linux
+robot: pi1
+fleet: lab
+network:
+  connect: tcp/192.168.8.2:7447
+base:
+  type: diff_drive
+  wheel_diameter: 0.068
+  wheel_base: 0.13
+  ticks_per_rev: 1440
+motors:
+  driver: tb6612          # same chip as the ESP32 car; pins are Pi BCM
+  pins: { pwmA: 12, ain1: 5, ain2: 6, pwmB: 13, bin1: 20, bin2: 21 }
+  pwm: { freq: 20000, min: 0.1, max: 1.0 }
+# encoders:               # optional; without them, pose is dead-reckoned
+#   driver: gpio_quadrature
+#   pins: { left: [17, 18], right: [22, 23] }
+control:
+  dt_ms: 20
+  teleop: { timeout_ms: 400, kv: 180, kw: 40 }
+  goto: { kp_linear: 0.8, kp_angular: 1.5, v_max: 0.35, w_max: 1.5 }
+  pose_hz: 20
+  presence_hz: 1
+```
+
+```bash
+pip install "rosie[linux]"          # built-in tb6612 / gpio / mpu6050 / pca9685
+rosie run --config robot.yaml --dry-run
+rosie run --config robot.yaml
+```
+
+The runtime mirrors firmware `MobileBase`: `cmd_vel`, `goto` / `nav_result`,
+`cmd` (`stop` / `zero`), `pose`, `presence`, teleop deadman. Laptop tools
+(`teleop`, `viz`, `fleet`, `MobileRobot`) work unchanged.
+
+**BYO driver** (no `rosie[linux]` needed):
+
+```yaml
+motors:
+  driver: python
+  class: mypkg.motors:MyMotorDriver   # set_channels / stop / close
+```
+
+`rosie drivers list --platform linux` lists inventory ids. Camera on Linux is
+not supported yet.
 
 ## Standard topics (MobileBase)
 
 | Topic | Direction | Notes |
 |-------|-----------|-------|
 | `cmd_vel` | host → robot | `Twist` `{v,w}` |
-| `goto` | host → robot | `{x,y}` meters |
+| `goto` | host → robot | `{x,y,goal_id?}` meters — latest goal wins |
+| `nav_result` | robot → host | one-shot `{goal_id,status,x?,y?}` when a goto ends |
 | `cmd` | host → robot | `stop`, `zero`, `set_gains`, `get_gains`, plus custom ops |
-| `pose` | robot → host | `x,y,theta` plus `mode`, `navigating`, `dist`, optional IMU flags |
+| `pose` | robot → host | `x,y,theta` plus `mode`, `navigating`, `dist`, `goal_id` while navigating |
 | `control` | robot → host | velocity gains + target/meas wheel vel (when controller attached) |
 | `presence` | robot → host | heartbeat |
 | `log` | robot → host | status lines |
@@ -172,9 +229,27 @@ Drive REPL includes optional camera `snap` / `cam` when the robot publishes
 JPEG. For the OpenCV viewer on the host: `pip install "rosie[camera]"` (robots
 can publish `camera/compressed` without that extra).
 
+### Navigation helpers
+
+Onboard nav is **one goal at a time**:
+
+| Topic / API | Role |
+|-------------|------|
+| `goto` / `MobileRobot.goto` | **Goal** — publish `{x,y,goal_id}` (fire-and-forget) |
+| `pose` | **Progress** — `navigating`, `dist`, `goal_id` while AUTO |
+| `nav_result` | **Done** — `{goal_id,status}` once (`succeeded` / `canceled` / `aborted`) |
+| `cmd` `stop` | **Cancel** — stops motors; yields `nav_result` `canceled` if a goto was active |
+| `MobileRobot.drive_to` | **Blocking helper** — `goto` + wait for matching `nav_result` |
+| `MobileRobot.drive_route` | **Convenience** — sequential `drive_to` (not a path planner) |
+| `rosie drive` | **REPL** — interactive prompt over those helpers |
+
+Latest `goto` preempts any in-progress goal (previous attempt gets `canceled`).
+Compose retries or tasks-at-waypoint yourself on top of `goto` / `drive_to`.
+Do not treat `drive_route` as autonomy infrastructure.
+
 ### `rosie drive`
 
-Interactive REPL over `rosie.Robot` for a MobileBase / DiffDriveStack robot.
+Interactive REPL over `rosie.MobileRobot` for a MobileBase / DiffDriveStack robot.
 Uses `robot.yaml` for identity (or `--robot` / `ROSIE_ROBOT`). Optional:
 `--fleet`, `--connect`, `--dir` (search for `robot.yaml`).
 
@@ -188,7 +263,7 @@ At the `target>` prompt:
 
 | Input | Action |
 |-------|--------|
-| `x y [x y …]` | Drive a waypoint route (meters in the robot pose frame) |
+| `x y [x y …]` | `drive_route` — sequential goals (meters in the pose frame) |
 | `teleop` | Nested WASD teleop (same bindings as `rosie teleop`) |
 | `snap` | Capture a camera still (if camera configured) |
 | `cam` | Live camera view |
@@ -204,21 +279,24 @@ only want keyboard driving (no waypoint REPL).
 
 Live velocity-PID tuning — see [Live tuning](#live-tuning) above.
 
-### Python (`rosie.Robot`)
+### Python (`rosie.MobileRobot`)
 
-Same capabilities from a script or notebook:
+Prefer `drive_to` (or `goto`) in scripts; use `drive_route` only as a short
+convenience:
 
 ```python
-from rosie import Robot
-with Robot(config_path="robot.yaml") as bot:
+from rosie import MobileRobot
+with MobileRobot(config_path="robot.yaml") as bot:
     bot.wait_for_pose()
     bot.set_gains(kp=0.3)
-    bot.drive_route([(1.0, 0.0), (1.0, 1.0)])
-    # bot.teleop()  # optional nested teleop
+    bot.drive_to(1.0, 0.0)
+    # bot.goto(1.0, 1.0)           # fire-and-forget
+    # bot.drive_route([(1.0, 0.0), (1.0, 1.0)])  # optional helper
+    # bot.teleop()                 # optional nested teleop
 ```
 
-More Session / Robot patterns: [Writing sessions](writing-sessions.md).
+More Session / MobileRobot patterns: [Writing sessions](writing-sessions.md).
 
 ## Related
 
-- [BYOR](byor.md) · [Firmware](firmware.md) · [Drivers](drivers.md) · [Conventions](conventions.md) · [Writing sessions](writing-sessions.md)
+- [BYOR](byor.md) · [Firmware](firmware.md) · [Drivers](drivers.md) · [Bridges](bridges.md) · [Conventions](conventions.md) · [Writing sessions](writing-sessions.md)

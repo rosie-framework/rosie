@@ -86,9 +86,23 @@ sees every client. Host tools are **fleet-first**:
 | Topics by robot | `rosie topic list --fleet lab` (alias: `rosie fleet topics`) |
 | Echo | `rosie topic echo --fleet lab --key '*/pose'` |
 | Record / play | `rosie bag record --fleet lab -o run.rosiebag` / `rosie bag play …` |
+| Bag info | `rosie bag info run.rosiebag` |
+| Export for analysis | `rosie bag export run.rosiebag -o run.mcap` |
 
 Topic list and bag **listen for live traffic** (default window ~2s for list).
 Publishers must be active; there is no separate DDS-style graph database.
+
+Bags are fleet-scoped JSONL (optional `.gz`). Useful play/export flags:
+
+```bash
+rosie bag record --fleet lab -o run.rosiebag.gz --duration 30
+rosie bag info run.rosiebag.gz
+rosie bag play run.rosiebag.gz --key '*/pose' --start 5 --end 20
+rosie bag export run.rosiebag.gz -o run.mcap --key '*/pose'
+```
+
+`--start` / `--end` are seconds from the bag’s first timestamp. `--key` is a
+fleet-relative or absolute glob (same selectors as record/list).
 
 Selectors are relative to the fleet unless absolute: `*/pose`, `car1/cmd_vel`,
 `_fleet/estop`, or `**` for everything under the fleet.

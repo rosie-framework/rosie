@@ -21,6 +21,7 @@ class DriverEntry:
     yaml_key: str = ""
     aliases: list[str] = field(default_factory=list)
     deps: list[str] = field(default_factory=list)
+    platforms: list[str] = field(default_factory=lambda: ["mcu"])
 
 
 def registry_path() -> Path:
@@ -34,6 +35,9 @@ def load_registry(path: Path | None = None) -> list[DriverEntry]:
     data = _load_yaml_or_json(p)
     out: list[DriverEntry] = []
     for raw in data.get("drivers", []):
+        platforms = raw.get("platforms")
+        if platforms is None:
+            platforms = ["mcu"]
         out.append(
             DriverEntry(
                 id=str(raw["id"]),
@@ -43,6 +47,7 @@ def load_registry(path: Path | None = None) -> list[DriverEntry]:
                 yaml_key=str(raw.get("yaml_key", "")),
                 aliases=[str(a) for a in raw.get("aliases", [])],
                 deps=[str(d) for d in raw.get("deps", [])],
+                platforms=[str(x) for x in platforms],
             )
         )
     return out
@@ -80,9 +85,20 @@ def _resolve_id(raw: str, entries: list[DriverEntry], category: str | None = Non
     )
 
 
-def _require_supported(entries: list[DriverEntry], id_: str, category: str) -> DriverEntry:
+def _require_supported(
+    entries: list[DriverEntry],
+    id_: str,
+    category: str,
+    *,
+    platform: str = "mcu",
+) -> DriverEntry:
     for e in entries:
         if e.id == id_ and e.category == category:
+            if platform not in e.platforms:
+                raise ValueError(
+                    f"{category} id {id_!r} is not available on platform={platform!r} "
+                    f"(platforms={e.platforms}). See `rosie drivers list --platform {platform}`."
+                )
             if e.status != "supported":
                 raise ValueError(
                     f"{category} id {id_!r} is status={e.status!r} (not implemented yet). "
@@ -115,6 +131,11 @@ class RobotConfig:
     @property
     def network_mode(self) -> str:
         return str(self.raw.get("network", {}).get("mode", "softap"))
+
+    @property
+    def platform(self) -> str:
+        p = self.raw.get("platform", "mcu")
+        return str(p or "mcu").strip().lower()
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -157,33 +178,58 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
         raise ValueError("robot.yaml: missing required field 'robot'")
     entries = registry if registry is not None else load_registry()
 
-    net = raw.get("network") or {}
-    mode = str(net.get("mode", "softap"))
-    mode = _resolve_id(mode, entries, "network")
-    _require_supported(entries, mode, "network")
+    platform = str(raw.get("platform", "mcu") or "mcu").strip().lower()
+    if platform not in ("mcu", "linux"):
+        raise ValueError(
+            f"robot.yaml: platform must be 'mcu' or 'linux' (got {platform!r})"
+        )
+
+    if platform == "mcu":
+        net = raw.get("network") or {}
+        mode = str(net.get("mode", "softap"))
+        mode = _resolve_id(mode, entries, "network")
+        _require_supported(entries, mode, "network", platform=platform)
 
     base = raw.get("base") or {}
     btype = str(base.get("type", "diff_drive"))
     btype = _resolve_id(btype, entries, "base")
-    _require_supported(entries, btype, "base")
+    _require_supported(entries, btype, "base", platform=platform)
 
     motors = raw.get("motors") or {}
     if motors:
         drv = str(motors.get("driver", "tb6612"))
         drv = _resolve_id(drv, entries, "motors")
-        _require_supported(entries, drv, "motors")
+        _require_supported(entries, drv, "motors", platform=platform)
+        if platform == "linux" and drv == "python" and not motors.get("class"):
+            raise ValueError("motors.driver=python requires motors.class")
+    elif platform == "linux":
+        raise ValueError("robot.yaml: motors section required for platform: linux")
+
+    enc = raw.get("encoders")
+    if enc and platform == "linux":
+        edrv = str(enc.get("driver", "gpio_quadrature"))
+        edrv = _resolve_id(edrv, entries, "encoders")
+        _require_supported(entries, edrv, "encoders", platform=platform)
+        if edrv == "python" and not enc.get("class"):
+            raise ValueError("encoders.driver=python requires encoders.class")
 
     imu = raw.get("imu")
     if imu:
         chip = str(imu.get("chip", "mpu6050"))
         chip = _resolve_id(chip, entries, "imu")
-        _require_supported(entries, chip, "imu")
+        _require_supported(entries, chip, "imu", platform=platform)
+        if platform == "linux" and chip == "python" and not imu.get("class"):
+            raise ValueError("imu.chip=python requires imu.class")
 
     cam = raw.get("camera")
     if cam:
+        if platform == "linux":
+            raise ValueError(
+                "robot.yaml: camera is not supported on platform: linux yet"
+            )
         board = str(cam.get("board", "esp32s3_eye"))
         board = _resolve_id(board, entries, "camera")
-        _require_supported(entries, board, "camera")
+        _require_supported(entries, board, "camera", platform=platform)
 
     control = raw.get("control") or {}
     velocity = control.get("velocity")
@@ -235,6 +281,11 @@ def _c_int(v: Any, default: int = 0) -> str:
 
 def generate_robot_config_h(cfg: RobotConfig) -> str:
     """Emit C++ header with constants for the robot firmware."""
+    if cfg.platform == "linux":
+        raise ValueError(
+            "generate_robot_config_h is MCU-only; "
+            "platform: linux uses `rosie run` (no codegen)."
+        )
     r = cfg.raw
     net = r.get("network") or {}
     base = r.get("base") or {}
@@ -353,6 +404,7 @@ def format_drivers_list(
     entries: list[DriverEntry] | None = None,
     *,
     category: str | None = None,
+    platform: str | None = None,
 ) -> str:
     entries = entries or load_registry()
     lines = []
@@ -360,11 +412,16 @@ def format_drivers_list(
     for e in entries:
         if category and e.category != category:
             continue
+        if platform and platform not in e.platforms:
+            continue
         cats.setdefault(e.category, []).append(e)
     for cat in sorted(cats):
         lines.append(f"[{cat}]")
         for e in cats[cat]:
             alias = f" (aliases: {', '.join(e.aliases)})" if e.aliases else ""
-            lines.append(f"  {e.id:24} {e.status:10} {e.description}{alias}")
+            plats = ",".join(e.platforms)
+            lines.append(
+                f"  {e.id:24} {e.status:10} [{plats:11}] {e.description}{alias}"
+            )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

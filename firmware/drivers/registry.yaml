@@ -1,13 +1,31 @@
 # Rosie driver / base / network inventory
 # Validated by rosie.robot_config and printed by `rosie drivers list`.
 # status: supported | planned
+# platforms: list of mcu | linux (default: [mcu] if omitted)
 
 drivers:
   - id: tb6612
     category: motors
     status: supported
-    description: TB6612FNG dual H-bridge (2 channels)
+    description: TB6612FNG dual H-bridge (2 channels; MCU GPIO or Pi BCM)
     yaml_key: motors.driver
+    platforms: [mcu, linux]
+    deps: []
+
+  - id: pca9685
+    category: motors
+    status: supported
+    description: PCA9685 I2C PWM HAT (Linux; magnitude PWM)
+    yaml_key: motors.driver
+    platforms: [linux]
+    deps: []
+
+  - id: python
+    category: motors
+    status: supported
+    description: BYO Python MotorDriver (motors.class)
+    yaml_key: motors.driver
+    platforms: [linux]
     deps: []
 
   - id: l298n
@@ -15,25 +33,53 @@ drivers:
     status: planned
     description: L298N dual H-bridge
     yaml_key: motors.driver
+    platforms: [mcu]
 
   - id: drv8833
     category: motors
     status: planned
     description: DRV8833 dual H-bridge
     yaml_key: motors.driver
+    platforms: [mcu]
 
   - id: quad_encoder
     category: encoders
     status: supported
     description: Quadrature A/B encoders via ESP32Encoder
     yaml_key: encoders
+    platforms: [mcu]
     deps: ["madhephaestus/ESP32Encoder"]
+
+  - id: gpio_quadrature
+    category: encoders
+    status: supported
+    description: Quadrature A/B encoders via Pi GPIO (lgpio)
+    yaml_key: encoders.driver
+    platforms: [linux]
+    deps: []
+
+  - id: python
+    category: encoders
+    status: supported
+    description: BYO Python EncoderReader (encoders.class)
+    yaml_key: encoders.driver
+    platforms: [linux]
+    deps: []
 
   - id: mpu6050
     category: imu
     status: supported
     description: MPU6050 gyro (yaw-rate fusion)
     yaml_key: imu.chip
+    platforms: [mcu, linux]
+    deps: []
+
+  - id: python
+    category: imu
+    status: supported
+    description: BYO Python ImuReader (imu.class)
+    yaml_key: imu.chip
+    platforms: [linux]
     deps: []
 
   - id: esp32s3_eye
@@ -42,6 +88,7 @@ drivers:
     description: ESP32-S3-EYE DVP pinout (also Freenove ESP32-S3 CAM clones)
     yaml_key: camera.board
     aliases: [freenove_esp32s3_cam]
+    platforms: [mcu]
     deps: []
 
   - id: diff_drive
@@ -49,27 +96,32 @@ drivers:
     status: supported
     description: Differential-drive kinematics + odometry
     yaml_key: base.type
+    platforms: [mcu, linux]
 
   - id: mecanum
     category: base
     status: planned
     description: Mecanum / omni (4 channels)
     yaml_key: base.type
+    platforms: [mcu, linux]
 
   - id: ackermann
     category: base
     status: planned
     description: Ackermann steer + drive
     yaml_key: base.type
+    platforms: [mcu, linux]
 
   - id: softap
     category: network
     status: supported
     description: ESP32 SoftAP solo fallback
     yaml_key: network.mode
+    platforms: [mcu]
 
   - id: station
     category: network
     status: supported
     description: Wi-Fi station (fleet / dedicated AP)
     yaml_key: network.mode
+    platforms: [mcu]

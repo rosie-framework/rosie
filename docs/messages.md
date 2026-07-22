@@ -71,9 +71,11 @@ Planar pose estimate. Typical topic: `<robot>/pose`.
 ```
 
 **MobileBase** also publishes stable extras on `pose`: `heading_deg`, `dist`,
-`navigating`, `mode`, and optionally `imu_ok` / `imu_heading`. Host arrival
-detection (`rosie.Robot.drive_to`) watches `navigating`. See
-[Conventions](conventions.md) and [Mobile base](mobile-base.md).
+`navigating`, `mode`, `goal_id` (while navigating), and optionally `imu_ok` /
+`imu_heading`. Progress is on `pose`; terminal outcome is on `nav_result`.
+`MobileRobot.drive_to` waits for a matching `nav_result`. See
+[Conventions](conventions.md) and
+[Mobile base → Navigation helpers](mobile-base.md#navigation-helpers).
 
 ### Log
 
@@ -126,20 +128,41 @@ Published on `<robot>/control` when a `VelocityController` is attached (~5 Hz).
 | `target_vel` | `f32[]` | per-wheel target velocity (m/s) |
 | `meas_vel` | `f32[]` | per-wheel measured velocity (m/s) |
 
-Tune live with `rosie tune` / `Robot.set_gains`.
+Tune live with `rosie tune` / `MobileRobot.set_gains`.
 
 ### Goto
 
-Planar goal point in the same frame as `Pose2D`. Typical topic: `<robot>/goto`. Completion / path following is robot policy.
+Planar goal point in the same frame as `Pose2D`. Typical topic: `<robot>/goto`.
+Latest goal wins. Hosts should set `goal_id`; if omitted, MobileBase assigns
+one. Completion is published on `nav_result` (not inferred from `pose` alone).
+See [Mobile base → Navigation helpers](mobile-base.md#navigation-helpers).
 
 | Field | Type | Meaning |
 |-------|------|---------|
 | `stamp` | `f64` | Seconds (auto-filled when missing) |
 | `x` | `f32` | meters |
 | `y` | `f32` | meters |
+| `goal_id` | `i32?` | attempt id (echoed on pose + nav_result) |
 
 ```json
-{ "stamp": 1.0, "x": 1.0, "y": 0.5 }
+{ "stamp": 1.0, "x": 1.0, "y": 0.5, "goal_id": 3 }
+```
+
+### NavResult
+
+Terminal outcome of a `goto` attempt. Typical topic: `<robot>/nav_result`.
+Published once when AUTO navigation ends.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `stamp` | `f64` | Seconds (auto-filled when missing) |
+| `goal_id` | `i32` | attempt id from `Goto` (or robot-assigned) |
+| `status` | `str` | `"succeeded"` / `"canceled"` / `"aborted"` |
+| `x` | `f32?` | pose at completion (meters) |
+| `y` | `f32?` | pose at completion (meters) |
+
+```json
+{ "stamp": 1.0, "goal_id": 3, "status": "succeeded", "x": 1.002, "y": 0.498 }
 ```
 
 ### RobotPresence

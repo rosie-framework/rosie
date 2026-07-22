@@ -1,0 +1,112 @@
+:root {
+  --bg: #0f1419;
+  --panel: #1a2332;
+  --text: #e7ecf3;
+  --muted: #8b9bb4;
+  --accent: #3d9cf0;
+  --line: #2a3548;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+#app {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: 100%;
+}
+#sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 1rem;
+  overflow-y: auto;
+}
+#sidebar h1 {
+  font-size: 1.1rem;
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+#sidebar h2 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 1.25rem 0 0.5rem;
+}
+.muted { color: var(--muted); font-size: 0.85rem; margin: 0; }
+#robot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+#robot-list li {
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+}
+#robot-list li:hover { background: #243044; }
+#robot-list li.selected {
+  border-color: var(--accent);
+  background: #1e2f45;
+}
+#robot-list li.stale { opacity: 0.45; }
+#detail-body {
+  margin: 0;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+#camera {
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  background: #0a0e14;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+#camera-section.hidden, #bag-section.hidden { display: none; }
+#bag-slider { width: 100%; }
+.bag-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.bag-controls button {
+  background: #243044;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+.bag-controls button:hover { border-color: var(--accent); }
+.bag-controls input[type="number"] {
+  width: 4rem;
+  background: #0a0e14;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.25rem;
+}
+main { position: relative; min-width: 0; }
+#canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background:
+    radial-gradient(circle at 50% 45%, #152033 0%, var(--bg) 70%);
+}
+@media (max-width: 720px) {
+  #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  #sidebar { border-right: none; border-bottom: 1px solid var(--line); max-height: 40vh; }
+}

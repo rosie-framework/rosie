@@ -1,39 +1,38 @@
 # Rosie
 
-Rosie is a modern, lightweight robotics framework, with an emphasis on multi-robot 
-interaction. Rosie is easy to get started, yet powerful and extensible for 
-professional applications.
+Rosie is the easy **fleet layer** for mixed robots — MCU, Linux, and ROS —
+from a normal laptop. Lightweight to install, low learning curve, and built so
+multi-robot teams are first-class whether each robot runs Rosie **natively** or
+uses another stack (e.g. ROS2) behind a thin **bridge**.
 
-## What Rosie provides
+## Goals
 
-Rosie gives you a **full bring-up stack** — bus, robot description, MCU firmware
-helpers, and host CLI — without needing a full ROS 2 install to drive a car or
-stand up a small fleet.
+1. **Robot fleets are first-class** — robot and fleet are real identity (not
+   topic prefixes). Discover, wait, teleop, viz, and bag the whole team from
+   one laptop on a brokered bus. This is why Rosie exists.
+2. **Easy to get started** — low learning curve: `pip install`, one bus
+   (`rosie router`), one robot description file, a small CLI. Drive a car or
+   stand up a team in minutes without DDS, colcon, or an Ubuntu robot PC on
+   the laptop.
+3. **One fleet across backends** — MCU (ESP32 firmware), Linux robots (Pi /
+   Jetson), and host laptops (macOS, Linux, Windows). Robots join **natively**
+   (`robot.yaml` + firmware or `rosie run`) or via a **bridge** (`rosie agent`
+   in front of ROS 2 / another backend). Membership and tooling span those
+   paths; Rosie does not require rewriting every robot.
 
-- **Minutes to a working bus on a laptop** — `pip install`, `rosie router`,
-  teleop. No Ubuntu robot PC or DDS/RMW setup required just to drive a car.
-- **One file describes the robot** — `robot.yaml` (pins, drivers, geometry,
-  gains, network) drives firmware codegen and host defaults.
-- **Batteries-included mobile base** — DiffDriveStack / MobileBase: teleop,
-  goto, deadman, optional onboard velocity PID, common chip drivers. Thin
-  `main.cpp`; you edit YAML, not a control stack.
-- **One CLI for the workflow** — router, doctor, teleop, drive, tune, fleet,
-  topic, bag, and MCU build/flash.
-- **MCU and Linux on the same bus** — ESP32 speaks Zenoh directly alongside
-  Pi / Jetson / laptop hosts; no separate MCU stack.
-- **First-class heterogeneous fleets** — robot and optional fleet are real
-  identity (not topic prefixes). Dedicated AP + one brokered router;
-  discover, wait, estop, and inspect the team from the CLI.
-
-Deeper comparison with ROS 2: [docs/motivation.md](docs/motivation.md).
+Either way, a robot is just an id under `{fleet}/{robot}/…`. Same laptop tools
+drive a heterogeneous team. Native vs bridge decision:
+[docs/bridges.md](docs/bridges.md). Deeper “why Rosie”:
+[docs/motivation.md](docs/motivation.md).
 
 ## Install
 
 ```bash
-pip install -e python              # host: Session, CLI, router
+pip install -e python              # host: Session, CLI, router, viz, bags / MCAP export
 pip install -e "python[mcu]"       # + MCU build / flash (PlatformIO under the hood)
+pip install -e "python[linux]"     # + Pi/Jetson GPIO / I2C drivers for `rosie run`
 pip install -e "python[camera]"    # + OpenCV for host camera snap / live view
-# or: pip install -e "python[mcu,camera]"
+# or: pip install -e "python[mcu,camera,linux]"
 
 rosie setup      # fetch zenohd once (while online)
 rosie router     # start the bus
@@ -44,18 +43,17 @@ Details: [docs/getting-started.md](docs/getting-started.md). Notices: [NOTICE](N
 
 ## How you work with Rosie
 
+| Piece | Role |
+| ----- | ---- |
+| `rosie` **CLI** | Bus (`router`, `doctor`), robots (`teleop`, `drive`, `tune`, `run`), fleets, topics, bags, ROS bridge (`agent`), MCU flash |
+| `robot.yaml` | Native robots: identity, network, pins, geometry, gains — MCU codegen **and** Linux `rosie run` |
+| `agent.yaml` | Bridged robots: identity + bus + ROS topic map (`rosie agent`) |
+| **Python** `Session` **/** `MobileRobot` | Host apps and scripts on the same bus |
+| **Firmware library** | Linked into MCU projects by `rosie mcu setup` |
 
-| Piece                              | Role                                                                                                  |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `rosie` **CLI**                    | Bus (`router`, `doctor`), robots (`teleop`, `drive`, `tune`), fleets, topics, bags, MCU flash         |
-| `robot.yaml`                       | One file for identity, network, pins, geometry, gains — drives firmware codegen **and** host defaults |
-| **Python** `Session` **/** `Robot` | Host apps and scripts on the same bus                                                                 |
-| **Firmware library**               | Linked into your MCU project by `rosie mcu setup`                                                     |
+### Paths for a robot
 
-
-
-
-### Ground MCU robot (typical path)
+**Native MCU** (Rosie owns hardware):
 
 ```bash
 mkdir mybot && cd mybot
@@ -63,12 +61,29 @@ rosie mcu init --robot mybot   # robot.yaml + thin DiffDriveStack main.cpp
 # edit robot.yaml — pins, Wi‑Fi, geometry
 rosie mcu setup && rosie mcu flash
 rosie drive --config robot.yaml
-# optional: rosie tune --config robot.yaml   # live velocity PID
 ```
 
-You edit `robot.yaml`, not C++ pin macros. The sketch is usually
-`DiffDriveStack::begin()` / `loop()` — see [Mobile base](docs/mobile-base.md)
-and [BYOR](docs/byor.md).
+**Native Linux** (Pi / Jetson, Rosie owns hardware):
+
+```bash
+# on the robot — robot.yaml with platform: linux
+pip install "rosie[linux]"
+rosie run --config robot.yaml
+# laptop: rosie teleop / viz / fleet list — same as MCU
+```
+
+**Bridge** (ROS / commercial stack owns hardware):
+
+```bash
+# on the robot (ROS already running)
+pip install rosie
+rosie agent init --robot turtle1 --fleet lab --connect tcp/<router>:7447
+rosie agent run
+# laptop: same teleop / viz / fleet tools — no ROS on the laptop
+```
+
+See [Mobile base](docs/mobile-base.md), [BYOR](docs/byor.md), and
+[Bridges](docs/bridges.md).
 
 ### Host only
 
@@ -78,49 +93,48 @@ python examples/minimal-pub-sub/talker.py
 python examples/minimal-pub-sub/listener.py
 ```
 
-
-
 ### Useful CLI
 
-
-| Command                                 | What it does                                                     |
-| --------------------------------------- | ---------------------------------------------------------------- |
-| `rosie teleop --robot mybot`            | WASD keyboard teleop → `cmd_vel`                                 |
-| `rosie drive --config robot.yaml`       | Waypoints, teleop, camera REPL for a MobileBase robot            |
-| `rosie tune --config robot.yaml`        | Live-tune onboard velocity PID; `save` writes gains back to YAML |
-| `rosie fleet list --fleet <id>`         | Discover robots from presence heartbeats                         |
-| `rosie topic list --fleet <id>`         | List live topics under a fleet                                   |
-| `rosie mcu build` / `flash` / `monitor` | Compile, flash, and serial-monitor the MCU project               |
-| `rosie drivers list`                    | Print supported / planned driver and base inventory              |
-
+| Command | What it does |
+| ------- | ------------ |
+| `rosie teleop --robot mybot` | WASD keyboard teleop → `cmd_vel` |
+| `rosie drive --config robot.yaml` | Interactive REPL (goto, teleop, camera) for native MobileBase |
+| `rosie tune --config robot.yaml` | Live-tune onboard velocity PID; `save` writes gains back to YAML |
+| `rosie fleet list --fleet <id>` | Discover robots from presence heartbeats |
+| `rosie topic list --fleet <id>` | List live topics under a fleet |
+| `rosie bag …` | Record / play / info fleet bags; export to MCAP |
+| `rosie viz --fleet <id>` | Browser 2D fleet viewer (poses / trails) |
+| `rosie run --config robot.yaml` | Linux-native mobile base (`platform: linux`) |
+| `rosie agent init` / `run` | ROS 2 ↔ Rosie bridge on the robot |
+| `rosie mcu build` / `flash` / `monitor` | Compile, flash, and serial-monitor an MCU project |
+| `rosie drivers list` | Print supported / planned driver and base inventory |
 
 Fleet networking (dedicated AP vs SoftAP): [docs/fleet-networking.md](docs/fleet-networking.md).
 
 ## Docs
 
-- [Motivation](docs/motivation.md) — purpose, Rosie vs ROS 2
+- [Motivation](docs/motivation.md) — goals, Rosie vs ROS 2, native vs bridge
 - [Getting started](docs/getting-started.md)
-- [Bring Your Own Robot](docs/byor.md) — stand up a new robot
-- [Mobile base](docs/mobile-base.md) — `robot.yaml`, DiffDriveStack, tuning
+- [Robots: native vs bridge](docs/bridges.md) — when to use `rosie run` vs `rosie agent`
+- [Bring Your Own Robot](docs/byor.md) — stand up a new native robot
+- [Mobile base](docs/mobile-base.md) — `robot.yaml`, DiffDriveStack, Linux `rosie run`
 - [Drivers](docs/drivers.md) — inventory (`rosie drivers list`)
 - [Architecture](docs/architecture.md)
 - [Fleet networking](docs/fleet-networking.md)
-- [Conventions](docs/conventions.md) — topics, robot/fleet identity, units
+- [Conventions](docs/conventions.md) — topics, robot/fleet identity, fleet robot contract
 - [Messages & codegen](docs/messages.md)
 - [Writing sessions (Python)](docs/writing-sessions.md)
+- [Viz](docs/viz.md) — browser 2D fleet / bag viewer
 - [Firmware](docs/firmware.md) — library details / advanced escape hatches
-
-
 
 ## Layout
 
 ```
 rosie/
-  python/          # pip package `rosie` + CLI
+  python/          # pip package `rosie` + CLI (run, agent, tools, …)
   firmware/        # MCU library (Session, DiffDriveStack, drivers) — linked via `rosie mcu setup`
   interfaces/      # std_msgs.yaml + gen.py
   docs/
   examples/        # minimal talker/listener + sample fleet manifest
   tools/           # sample zenohd config (also packaged in the wheel)
 ```
-

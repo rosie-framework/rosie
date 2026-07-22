@@ -89,6 +89,7 @@ void MobileBase::declareEndpoints_() {
   pub_cam_ = session_.createPublisher("camera/compressed");
   pub_presence_ = session_.createPublisher("presence");
   pub_control_ = session_.createPublisher("control");
+  pub_nav_result_ = session_.createPublisher("nav_result");
   session_.createSubscription("cmd_vel", onCmdVel_, this);
   session_.createSubscription("goto", onGoto_, this);
   session_.createSubscription("cmd", onCmd_, this);
@@ -115,7 +116,7 @@ void MobileBase::onCmdVel_(const uint8_t* data, size_t len, void* user) {
 
 void MobileBase::onGoto_(const uint8_t* data, size_t len, void* user) {
   auto* self = static_cast<MobileBase*>(user);
-  char buf[128];
+  char buf[160];
   if (len >= sizeof(buf)) len = sizeof(buf) - 1;
   memcpy(buf, data, len);
   buf[len] = '\0';
@@ -126,6 +127,13 @@ void MobileBase::onGoto_(const uint8_t* data, size_t len, void* user) {
   self->lockCmd_();
   self->cmd_.goto_x = doc["x"].as<float>();
   self->cmd_.goto_y = doc["y"].as<float>();
+  if (!doc["goal_id"].isNull()) {
+    self->cmd_.goto_has_goal_id = true;
+    self->cmd_.goto_goal_id = doc["goal_id"].as<int32_t>();
+  } else {
+    self->cmd_.goto_has_goal_id = false;
+    self->cmd_.goto_goal_id = 0;
+  }
   self->cmd_.goto_requested = true;
   self->unlockCmd_();
 }
@@ -209,10 +217,12 @@ void MobileBase::requestZero() {
   unlockCmd_();
 }
 
-void MobileBase::requestGoto(float x, float y) {
+void MobileBase::requestGoto(float x, float y, int32_t goal_id, bool has_goal_id) {
   lockCmd_();
   cmd_.goto_x = x;
   cmd_.goto_y = y;
+  cmd_.goto_goal_id = goal_id;
+  cmd_.goto_has_goal_id = has_goal_id;
   cmd_.goto_requested = true;
   unlockCmd_();
 }
@@ -255,6 +265,26 @@ void MobileBase::driveTwist_(float v, float w) {
 
 void MobileBase::teleopDrive_(float v, float w) { driveTwist_(v, w); }
 
+void MobileBase::publishNavResult_(const char* status) {
+  if (pub_nav_result_ < 0) return;
+  Pose2DState p = kinematics_.pose();
+  JsonDocument doc;
+  doc["goal_id"] = active_goal_id_;
+  doc["status"] = status;
+  doc["x"] = p.x;
+  doc["y"] = p.y;
+  session_.publishJson(pub_nav_result_, doc);
+}
+
+void MobileBase::endNavigation_(const char* status) {
+  if (!navigating_) return;
+  navigating_ = false;
+  publishNavResult_(status);
+  mode_ = DriveMode::Idle;
+  motors_.stop();
+  resetVelocity_();
+}
+
 void MobileBase::navigate_() {
   Pose2DState p = kinematics_.pose();
   float dx = target_x_ - p.x;
@@ -263,14 +293,11 @@ void MobileBase::navigate_() {
   const GotoGains& g = cfg_.goto_gains;
 
   if (distance < g.pos_tolerance) {
-    motors_.stop();
-    resetVelocity_();
-    navigating_ = false;
-    mode_ = DriveMode::Idle;
     char buf[80];
     snprintf(buf, sizeof(buf), "Arrived at (%.3f, %.3f) m, heading %.1f deg", p.x, p.y,
              p.theta * 180.0f / static_cast<float>(M_PI));
     log("info", buf);
+    endNavigation_("succeeded");
     return;
   }
 
@@ -280,14 +307,11 @@ void MobileBase::navigate_() {
   while (heading_err < -static_cast<float>(M_PI)) heading_err += 2.0f * static_cast<float>(M_PI);
 
   if (distance < g.approach_dist && fabsf(heading_err) > static_cast<float>(M_PI) * 0.5f) {
-    motors_.stop();
-    resetVelocity_();
-    navigating_ = false;
-    mode_ = DriveMode::Idle;
     char buf[96];
     snprintf(buf, sizeof(buf), "Arrived (past goal) at (%.3f, %.3f) m, heading %.1f deg", p.x, p.y,
              p.theta * 180.0f / static_cast<float>(M_PI));
     log("info", buf);
+    endNavigation_("succeeded");
     return;
   }
 
@@ -335,33 +359,45 @@ void MobileBase::tick() {
   DriveMode prev_mode = mode_;
 
   if (snap.stop_requested) {
-    navigating_ = false;
-    mode_ = DriveMode::Idle;
-    motors_.stop();
-    resetVelocity_();
-    log("info", "Stopped.");
+    if (navigating_) {
+      endNavigation_("canceled");
+      log("info", "Stopped.");
+    } else {
+      mode_ = DriveMode::Idle;
+      motors_.stop();
+      resetVelocity_();
+      log("info", "Stopped.");
+    }
   }
   if (snap.zero_requested) {
+    if (navigating_) endNavigation_("canceled");
     kinematics_.zeroPose();
     if (sensors_.onZeroPose) sensors_.onZeroPose(sensors_.user);
     mode_ = DriveMode::Idle;
-    navigating_ = false;
     motors_.stop();
     resetVelocity_();
     log("info", "Pose zeroed.");
   }
   if (snap.goto_requested) {
+    if (navigating_) endNavigation_("canceled");
     target_x_ = snap.goto_x;
     target_y_ = snap.goto_y;
+    if (snap.goto_has_goal_id) {
+      active_goal_id_ = snap.goto_goal_id;
+      if (active_goal_id_ >= next_goal_id_) next_goal_id_ = active_goal_id_ + 1;
+    } else {
+      active_goal_id_ = next_goal_id_++;
+    }
     navigating_ = true;
     mode_ = DriveMode::Auto;
-    char buf[64];
-    snprintf(buf, sizeof(buf), "New target: (%.3f, %.3f) m", target_x_, target_y_);
+    char buf[80];
+    snprintf(buf, sizeof(buf), "New target: (%.3f, %.3f) m goal_id=%ld", target_x_, target_y_,
+             (long)active_goal_id_);
     log("info", buf);
   }
   if (snap.cmd_vel_seen) {
+    if (navigating_) endNavigation_("canceled");
     mode_ = DriveMode::Manual;
-    navigating_ = false;
   }
 
   if (mode_ != prev_mode && (mode_ == DriveMode::Manual || mode_ == DriveMode::Auto ||
@@ -433,6 +469,7 @@ void MobileBase::publishPose_() {
   doc["dist"] = dist;
   doc["navigating"] = navigating_;
   doc["mode"] = modeName(mode_);
+  if (navigating_) doc["goal_id"] = active_goal_id_;
   doc["imu_ok"] = imu_ok_;
   doc["imu_heading"] = imu_ok_ && useImuHeading();
   session_.publishJson(pub_pose_, doc);

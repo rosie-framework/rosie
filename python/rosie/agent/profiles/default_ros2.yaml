@@ -1,0 +1,3 @@
+# Default ROS 2 topic map (generic mobile base / TurtleBot-like).
+cmd_vel: /cmd_vel
+odom: /odom

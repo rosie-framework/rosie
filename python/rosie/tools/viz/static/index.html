@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rosie viz</title>
+  <link rel="stylesheet" href="/static/viz.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <header>
+        <h1>Rosie viz</h1>
+        <p id="meta" class="muted">connecting…</p>
+      </header>
+      <section>
+        <h2>Robots</h2>
+        <ul id="robot-list"></ul>
+      </section>
+      <section id="detail">
+        <h2>Selected</h2>
+        <pre id="detail-body">—</pre>
+      </section>
+      <section id="camera-section">
+        <h2>Camera</h2>
+        <img id="camera" alt="no camera" />
+      </section>
+      <section id="bag-section" class="hidden">
+        <h2>Bag</h2>
+        <input type="range" id="bag-slider" min="0" max="1" step="0.01" value="0" />
+        <div class="bag-controls">
+          <button type="button" id="bag-play">Play</button>
+          <button type="button" id="bag-pause">Pause</button>
+          <label>Rate <input type="number" id="bag-rate" value="1" min="0.1" max="10" step="0.1" /></label>
+        </div>
+        <p id="bag-time" class="muted"></p>
+      </section>
+    </aside>
+    <main>
+      <canvas id="canvas"></canvas>
+    </main>
+  </div>
+  <script src="/static/viz.js"></script>
+</body>
+</html>

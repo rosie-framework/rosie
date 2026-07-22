@@ -1,4 +1,4 @@
-"""High-level Robot client: mission, teleop, camera on a Rosie Session."""
+"""Host-side MobileBase client: goto, teleop, camera on a Rosie Session."""
 
 from __future__ import annotations
 
@@ -26,8 +26,21 @@ def _msg_cmd(op: str, value: Any = None) -> bytes:
     return encode_json({"op": op, "value": value})
 
 
-class Robot:
-    """Host-side helper for a MobileBase robot (goto, teleop, camera, pose)."""
+class MobileRobot:
+    """Host-side helper for a MobileBase / DiffDriveStack robot.
+
+    Sibling capability clients (e.g. an arm helper) would wrap ``Session`` the
+    same way — there is no shared robot superclass.
+
+    Navigation (topics only — see docs/mobile-base.md):
+      ``goto`` — publish a planar goal with ``goal_id`` (fire-and-forget)
+      ``pose`` — progress (``navigating``, ``dist``, ``goal_id``)
+      ``nav_result`` — terminal outcome (``succeeded`` / ``canceled`` / ``aborted``)
+      ``drive_to`` — blocking helper: goto + wait for matching ``nav_result``
+      ``drive_route`` — convenience: sequential ``drive_to`` (not a planner)
+
+    Also: teleop, camera, pose, gains. Interactive UX: ``rosie drive``.
+    """
 
     def __init__(
         self,
@@ -35,7 +48,7 @@ class Robot:
         *,
         fleet: str | None = None,
         connect: str | None = None,
-        name: str = "robot",
+        name: str = "mobile",
         config_path: str | Path | None = None,
     ) -> None:
         if config_path:
@@ -57,12 +70,19 @@ class Robot:
         self.session = Session(robot=robot, fleet=fleet, connect=connect, name=name)
         self.robot_id = robot
         self._pose: dict = {}
+        self._nav_result: dict | None = None
+        self._next_goal_id = 1
         self._lock = threading.Lock()
         self.session.subscribe_json(topics.POSE, self._on_pose)
+        self.session.subscribe_json(topics.NAV_RESULT, self._on_nav_result)
 
     def _on_pose(self, msg: dict) -> None:
         with self._lock:
             self._pose = msg
+
+    def _on_nav_result(self, msg: dict) -> None:
+        with self._lock:
+            self._nav_result = msg
 
     def pose(self) -> dict:
         with self._lock:
@@ -118,16 +138,50 @@ class Robot:
         """Request gain / control telemetry publish (see topics.CONTROL)."""
         self.session.publish(topics.CMD, _msg_cmd("get_gains"))
 
-    def goto(self, x: float, y: float) -> None:
-        self.session.publish(topics.GOTO, Goto(x=float(x), y=float(y)).to_bytes())
+    def goto(self, x: float, y: float, *, goal_id: int | None = None) -> int:
+        """Publish a planar goal (fire-and-forget). Returns ``goal_id``.
 
-    def drive_to(self, x: float, y: float, poll_s: float = 0.1) -> None:
-        self.goto(x, y)
-        print(f"  driving to ({x}, {y}) m ...  (Ctrl-C to send STOP)")
+        The navigation primitive. Completion is published on ``nav_result``.
+        """
+        if goal_id is None:
+            goal_id = self._next_goal_id
+            self._next_goal_id += 1
+        else:
+            self._next_goal_id = max(self._next_goal_id, int(goal_id) + 1)
+        with self._lock:
+            self._nav_result = None
+        self.session.publish(
+            topics.GOTO,
+            Goto(x=float(x), y=float(y), goal_id=int(goal_id)).to_bytes(),
+        )
+        return int(goal_id)
+
+    def drive_to(self, x: float, y: float, poll_s: float = 0.1) -> dict:
+        """Blocking helper: ``goto``, then wait for matching ``nav_result``.
+
+        Prints pose progress. Ctrl-C sends ``stop`` and re-raises.
+        Returns the ``nav_result`` dict (``goal_id``, ``status``, …).
+        """
+        goal_id = self.goto(x, y)
+        print(
+            f"  driving to ({x}, {y}) m goal_id={goal_id} ...  (Ctrl-C to send STOP)"
+        )
         try:
-            saw_nav = False
-            idle_checks = 0
             while True:
+                with self._lock:
+                    result = dict(self._nav_result) if self._nav_result else None
+                if result is not None and int(result.get("goal_id", -1)) == goal_id:
+                    status = result.get("status", "?")
+                    print()
+                    print(
+                        f"  >> nav_result goal_id={goal_id} status={status} "
+                        f"at ({result.get('x', 0):.3f}, {result.get('y', 0):.3f}) m"
+                    )
+                    if status != "succeeded":
+                        raise RuntimeError(
+                            f"navigation {status} for goal_id={goal_id}"
+                        )
+                    return result
                 p = self.pose()
                 if p:
                     sys.stdout.write(
@@ -136,20 +190,6 @@ class Robot:
                         f"remaining={p.get('dist', 0):6.3f} m   mode={p.get('mode', '?')}   "
                     )
                     sys.stdout.flush()
-                    nav = bool(p.get("navigating", False))
-                    if nav:
-                        saw_nav = True
-                        idle_checks = 0
-                    elif saw_nav:
-                        print()
-                        print(f"  >> Arrived at ({p.get('x', 0):.3f}, {p.get('y', 0):.3f}) m")
-                        return
-                    else:
-                        idle_checks += 1
-                        if idle_checks > 20 and p.get("dist", 999) < 0.05:
-                            print()
-                            print(f"  >> Near goal at ({p.get('x', 0):.3f}, {p.get('y', 0):.3f}) m")
-                            return
                 time.sleep(poll_s)
         except KeyboardInterrupt:
             self.stop()
@@ -157,12 +197,16 @@ class Robot:
             raise
 
     def drive_route(self, waypoints: list[tuple[float, float]]) -> None:
+        """Convenience: call ``drive_to`` for each waypoint. Not a path planner."""
         total = len(waypoints)
         for i, (x, y) in enumerate(waypoints, start=1):
             print(f"  waypoint {i}/{total}")
             try:
                 self.drive_to(x, y)
             except KeyboardInterrupt:
+                return
+            except RuntimeError as e:
+                print(f"  route stopped: {e}")
                 return
         print(f"  route complete ({total} waypoint{'s' if total != 1 else ''}).")
 
@@ -247,7 +291,7 @@ class Robot:
     def close(self) -> None:
         self.session.close()
 
-    def __enter__(self) -> Robot:
+    def __enter__(self) -> MobileRobot:
         return self
 
     def __exit__(self, *args: object) -> None:

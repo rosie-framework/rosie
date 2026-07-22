@@ -92,17 +92,48 @@ struct Goto {
   double stamp = 0.0;
   float x = {};
   float y = {};
+  bool has_goal_id = false;
+  int32_t goal_id = 0;
 
   void toJson(JsonDocument& doc) const {
     doc["stamp"] = stamp;
     doc["x"] = x;
     doc["y"] = y;
+    if (has_goal_id) doc["goal_id"] = goal_id;
   }
 
   bool fromJson(JsonVariantConst doc) {
     stamp = doc["stamp"] | 0.0;
     x = doc["x"] | x;
     y = doc["y"] | y;
+    if (!doc["goal_id"].isNull()) { has_goal_id = true; goal_id = doc["goal_id"]; }
+    return true;
+  }
+};
+
+struct NavResult {
+  double stamp = 0.0;
+  int32_t goal_id = {};
+  char status[64] = {0};
+  bool has_x = false;
+  float x = 0;
+  bool has_y = false;
+  float y = 0;
+
+  void toJson(JsonDocument& doc) const {
+    doc["stamp"] = stamp;
+    doc["goal_id"] = goal_id;
+    doc["status"] = status;
+    if (has_x) doc["x"] = x;
+    if (has_y) doc["y"] = y;
+  }
+
+  bool fromJson(JsonVariantConst doc) {
+    stamp = doc["stamp"] | 0.0;
+    goal_id = doc["goal_id"] | goal_id;
+    { const char* s = doc["status"] | ""; strncpy(status, s, sizeof(status) - 1); status[sizeof(status) - 1] = 0; }
+    if (!doc["x"].isNull()) { has_x = true; x = doc["x"]; }
+    if (!doc["y"].isNull()) { has_y = true; y = doc["y"]; }
     return true;
   }
 };

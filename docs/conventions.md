@@ -60,13 +60,35 @@ Constants in `rosie.topics`:
 | `POSE` | `pose` | robot → host | JSON `Pose2D` (+ MobileBase extras below) |
 | `LOG` | `log` | robot → host | JSON `Log` |
 | `CMD_VEL` | `cmd_vel` | host → robot | JSON `Twist` |
-| `GOTO` | `goto` | host → robot | JSON `Goto` |
+| `GOTO` | `goto` | host → robot | JSON `Goto` (`x`,`y`,`goal_id?`) |
+| `NAV_RESULT` | `nav_result` | robot → host | JSON `NavResult` (goto terminal outcome) |
 | `CMD` | `cmd` | host → robot | JSON `Cmd` (`stop`, `zero`, `set_gains`, …) |
 | `CONTROL` | `control` | robot → host | velocity gains + wheel vel telemetry |
 | `PRESENCE` | `presence` | robot → host | JSON `RobotPresence` |
 | `CAMERA_COMPRESSED` | `camera/compressed` | robot → host | raw bytes (e.g. JPEG) |
 
 Custom relative names: pass any string (`"sensors/imu"`) or an absolute `"/..."`.
+
+### Fleet robot contract
+
+A robot is a first-class fleet member if it honors this contract — regardless of
+whether it runs Rosie **natively** (MCU firmware / Linux `rosie run`) or via
+a **bridge** (`rosie agent` in front of ROS 2). Laptop tools (`teleop`,
+`viz`, `bag`, `fleet`, `MobileRobot`) judge native and bridged robots the same
+way. See [Bridges](bridges.md) for native-vs-bridge guidance and `rosie agent`.
+
+| Level | Topic(s) | Requirement |
+|-------|----------|-------------|
+| **MUST** | `presence` | Publish ~1 Hz so hosts can discover the robot |
+| **MUST** | `pose` | Publish `x`, `y`, `theta` (meters / radians) for viz, follow, logging |
+| **MUST** | `cmd_vel` | Accept `Twist` (`v`, `w`) for teleop / manual control |
+| **SHOULD** | `goto` + `nav_result` | Accept a planar goal and report a terminal outcome (enables `drive_to` / `rosie drive`) |
+| **MAY** | `camera/compressed` | Publish JPEG bytes for the viz camera panel |
+| **MAY** | `log`, `cmd`, `control` | Structured logs, custom ops, velocity-gain telemetry |
+
+All keys resolve under `{fleet}/{robot}/…`. Extra JSON fields are allowed as long
+as the standard fields remain present. A bridge simply maps these to/from the
+robot's own topics (e.g. ROS `/cmd_vel`, `/odom`).
 
 ### Environment variables
 
@@ -89,23 +111,27 @@ Custom relative names: pass any string (`"sensors/imu"`) or an absolute `"/..."`
 | Yaw `theta` | radians; convention is robot-defined (often +CCW from +x) |
 
 There is **no TF tree** and **no `frame_id`**. Pose and goto share whatever frame
-the robot defines (document it in the robot README).
+the robot defines (document it in the robot README). Host helpers above `goto`
+are documented in [Mobile base → Navigation helpers](mobile-base.md#navigation-helpers).
 
 ## Binary vs JSON topics
 
 - Structured messages: UTF-8 JSON with a top-level `stamp` ([architecture](architecture.md)).
 - Compressed images and similar: **raw bytes**, not JSON.
 - Robots may add **extra JSON fields** on standard topics as long as the std
-  fields remain present. **MobileBase** pose convention (stable for
-  `rosie.Robot` / `rosie drive` arrival detection):
+  fields remain present. **MobileBase** pose extras (progress while navigating):
 
   | Extra field | Meaning |
   |-------------|---------|
   | `heading_deg` | yaw in degrees (convenience) |
   | `dist` | distance to current goto target (m) |
   | `navigating` | bool — AUTO goto in progress |
+  | `goal_id` | active goto attempt id (while `navigating`) |
   | `mode` | `"idle"` / `"manual"` / `"auto"` |
   | `imu_ok` / `imu_heading` | optional IMU status |
+
+  Terminal outcome is **`nav_result`**, not an edge on `navigating`. See
+  [Mobile base → Navigation helpers](mobile-base.md#navigation-helpers).
 
   Robot description for MCU bring-up is **`robot.yaml`** (not URDF) — see
   [Mobile base](mobile-base.md).
@@ -130,11 +156,12 @@ Compared to ROS 2, Rosie does **not** provide:
 - QoS profiles (reliability / history / depth)
 - TF / `frame_id`
 - A remote parameter server (params are local + env override only)
-- Services and actions (roadmap / not yet)
+- Services and ROS-style action servers (long-running goals use ordinary
+  topics: `goto` + `nav_result` — see [Mobile base](mobile-base.md#navigation-helpers))
 - Launch-file topic remapping (use absolute names or change robot/fleet;
   team bring-up is `rosie fleet wait` / a fleet manifest + presence wait, not
   N remapped launches)
-- A full RViz-class visualizer (use fleet topic/bag tools; viz is app-side)
+- A full RViz-class visualizer (use lightweight `rosie viz` for 2D fleet poses)
 
 Prefer `std_msgs` for cross-robot contracts; use plain JSON or custom keys when a
 robot needs something outside that set.

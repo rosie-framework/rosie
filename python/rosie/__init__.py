@@ -4,7 +4,7 @@ from .messages import decode_json, encode_json, stamp_now, with_stamp
 from .session import Session
 from .fleet import Fleet, TopicMap
 from .manifest import FleetManifest, RobotSpec, load_manifest
-from .robot import Robot
+from .mobile_robot import MobileRobot
 from .robot_config import RobotConfig, load_robot_config
 from . import std_msgs
 from . import topics
@@ -16,7 +16,7 @@ __all__ = [
     "FleetManifest",
     "RobotSpec",
     "load_manifest",
-    "Robot",
+    "MobileRobot",
     "RobotConfig",
     "load_robot_config",
     "topics",

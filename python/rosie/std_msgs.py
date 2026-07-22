@@ -120,11 +120,14 @@ class Goto:
     stamp: float = 0.0
     x: float = 0.0
     y: float = 0.0
+    goal_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"stamp": float(self.stamp)}
         d["x"] = self.x
         d["y"] = self.y
+        if self.goal_id is not None:
+            d["goal_id"] = self.goal_id
         return d
 
     def to_bytes(self) -> bytes:
@@ -134,10 +137,42 @@ class Goto:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Goto":
-        return cls(stamp=float(d.get("stamp", 0.0)), x=d.get("x", 0.0), y=d.get("y", 0.0))
+        return cls(stamp=float(d.get("stamp", 0.0)), x=d.get("x", 0.0), y=d.get("y", 0.0), goal_id=d.get("goal_id"))
 
     @classmethod
     def from_bytes(cls, raw: bytes | str) -> "Goto":
+        return cls.from_dict(decode_json(raw))
+
+
+@dataclass
+class NavResult:
+    stamp: float = 0.0
+    goal_id: int = 0
+    status: str = ""
+    x: float | None = None
+    y: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"stamp": float(self.stamp)}
+        d["goal_id"] = self.goal_id
+        d["status"] = self.status
+        if self.x is not None:
+            d["x"] = self.x
+        if self.y is not None:
+            d["y"] = self.y
+        return d
+
+    def to_bytes(self) -> bytes:
+        if self.stamp == 0.0:
+            self.stamp = stamp_now()
+        return encode_json(self.to_dict())
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "NavResult":
+        return cls(stamp=float(d.get("stamp", 0.0)), goal_id=d.get("goal_id", 0), status=d.get("status", ""), x=d.get("x"), y=d.get("y"))
+
+    @classmethod
+    def from_bytes(cls, raw: bytes | str) -> "NavResult":
         return cls.from_dict(decode_json(raw))
 
 

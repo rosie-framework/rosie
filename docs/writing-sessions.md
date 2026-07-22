@@ -4,16 +4,18 @@ A **Session** is a process-local Zenoh handle bound to a **robot** (and optional
 **fleet**). Sensors and commands are **topics** under that robot—not separate
 sessions per driver.
 
-For MobileBase robots, prefer the higher-level **`rosie.Robot`** helper or the
-`rosie drive` CLI (see [Mobile base → Host](mobile-base.md#host)). Raw
-`Session` remains the right tool for custom hosts and non-mobile robots.
+For MobileBase robots, prefer the higher-level **`rosie.MobileRobot`** helper or the
+`rosie drive` CLI (see [Mobile base → Host](mobile-base.md#host)). Navigation
+ladder: `goto` (goal) → `pose` (progress) → `nav_result` (done); `drive_to`
+waits on `nav_result` — details in [Navigation helpers](mobile-base.md#navigation-helpers).
+Raw `Session` remains the right tool for custom hosts and non-mobile robots.
 
 ```python
-from rosie import Robot
+from rosie import MobileRobot
 
-with Robot(config_path="robot.yaml") as bot:
+with MobileRobot(config_path="robot.yaml") as bot:
     bot.wait_for_pose()
-    bot.drive_route([(1.0, 0.0), (1.0, 1.0)])
+    bot.drive_to(1.0, 0.0)
 ```
 
 ```python

@@ -79,7 +79,9 @@ PlatformIO):
 | `rosie teleop` | WASD → `<robot>/cmd_vel` |
 | `rosie fleet …` | List / wait / topics / estop / leader |
 | `rosie topic …` | Fleet-scoped list / echo (grouped by robot) |
-| `rosie bag …` | Record / play fleet traffic (`.rosiebag`) |
+| `rosie bag …` | Record / play / info / export fleet traffic (`.rosiebag`, MCAP export) |
+| `rosie agent …` | ROS 2 ↔ Rosie bridge on the robot (`init` / `run` / `install` / `doctor`) |
+| `rosie viz` | Lightweight browser spatial viewer (poses / trails / bag scrub) |
 | `rosie mcu …` | MCU / PlatformIO: `setup` / `link` / `build` / `flash` / `monitor` |
 
 ## Messages

@@ -1,8 +1,10 @@
-"""Live velocity-PID tuning helpers and `rosie tune` CLI support."""
+"""Live velocity-PID tuning helpers (no argparse).
+
+Call from scripts or ``rosie tune`` (CLI lives in ``rosie.cli.tune``).
+"""
 
 from __future__ import annotations
 
-import sys
 import threading
 import time
 from pathlib import Path
@@ -51,7 +53,8 @@ def save_velocity_gains_to_yaml(
     return path
 
 
-def _latest_control(bot: Any, timeout_s: float = 2.0) -> dict | None:
+def latest_control(bot: Any, timeout_s: float = 2.0) -> dict | None:
+    """Request gains and wait for a ``control`` telemetry sample."""
     box: dict[str, Any] = {"msg": None}
     lock = threading.Lock()
 
@@ -73,7 +76,7 @@ def _latest_control(bot: Any, timeout_s: float = 2.0) -> dict | None:
 
 
 def run_tune_interactive(bot: Any, config_path: str | Path | None = None) -> int:
-    """Interactive gain editor. Keys: p/P k/K d/D, g=get, s=save, q=quit."""
+    """Interactive gain editor. Keys: kp/ki/kd/i_clamp, get, save, quit."""
     from rosie import topics
 
     control: dict = {}
@@ -154,89 +157,3 @@ def run_tune_interactive(bot: Any, config_path: str | Path | None = None) -> int
             continue
         print("  unknown command")
     return 0
-
-
-def cmd_tune(args: Any) -> int:
-    """Entry for ``rosie tune`` / ``rosie tune set`` / ``rosie tune save``."""
-    from pathlib import Path
-
-    from rosie.robot import Robot
-    from rosie.robot_config import find_robot_yaml
-
-    config = getattr(args, "config", None)
-    if not config:
-        found = find_robot_yaml(Path(getattr(args, "dir", ".") or "."))
-        config = str(found) if found else None
-
-    sub = getattr(args, "tune_command", None) or "interactive"
-
-    if sub == "save":
-        if not config:
-            print("error: --config robot.yaml required for save", file=sys.stderr)
-            return 2
-        if args.kp is None and args.ki is None and args.kd is None:
-            # Pull live gains from robot
-            bot = Robot(
-                robot=args.robot,
-                fleet=args.fleet,
-                connect=args.connect,
-                name="tune",
-                config_path=config,
-            )
-            msg = _latest_control(bot)
-            if not msg or "kp" not in msg:
-                print("error: no control telemetry from robot", file=sys.stderr)
-                return 1
-            out = save_velocity_gains_to_yaml(
-                config,
-                kp=float(msg["kp"]),
-                ki=float(msg.get("ki", 0)),
-                kd=float(msg.get("kd", 0)),
-                i_clamp=float(msg.get("i_clamp", 0.5)),
-            )
-        else:
-            out = save_velocity_gains_to_yaml(
-                config,
-                kp=float(args.kp if args.kp is not None else 0.0),
-                ki=float(args.ki if args.ki is not None else 0.0),
-                kd=float(args.kd if args.kd is not None else 0.0),
-                i_clamp=float(args.i_clamp if args.i_clamp is not None else 0.5),
-            )
-        print(f"Wrote {out}")
-        print("Reflash to bake defaults: rosie mcu flash")
-        return 0
-
-    bot = Robot(
-        robot=args.robot,
-        fleet=args.fleet,
-        connect=args.connect,
-        name="tune",
-        config_path=config,
-    )
-
-    if sub == "set":
-        kwargs = {}
-        if args.kp is not None:
-            kwargs["kp"] = args.kp
-        if args.ki is not None:
-            kwargs["ki"] = args.ki
-        if args.kd is not None:
-            kwargs["kd"] = args.kd
-        if args.i_clamp is not None:
-            kwargs["i_clamp"] = args.i_clamp
-        if not kwargs:
-            print("error: pass at least one of --kp/--ki/--kd/--i-clamp", file=sys.stderr)
-            return 2
-        bot.set_gains(**kwargs)
-        print(f"set_gains {kwargs}")
-        time.sleep(0.3)
-        msg = _latest_control(bot)
-        if msg:
-            print(
-                f"robot: kp={msg.get('kp')} ki={msg.get('ki')} "
-                f"kd={msg.get('kd')} i_clamp={msg.get('i_clamp')}"
-            )
-        return 0
-
-    # interactive (default)
-    return run_tune_interactive(bot, config_path=config)

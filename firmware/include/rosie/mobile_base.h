@@ -80,7 +80,8 @@ class MobileBase {
    * Bring up network externally (softAP / wifiStation), then call begin.
    * Opens Session, declares topics. Retries are the caller's responsibility.
    */
-  bool begin(const char* connect_locator, const char* mode = "client");
+  bool begin(const char* connect_locator, const char* mode = "client",
+             const char* user = nullptr, const char* password = nullptr);
   bool ready() const;
 
   /** Poll session + fixed-rate control + pose/presence publish. Call from loop(). */

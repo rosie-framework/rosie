@@ -39,6 +39,7 @@ def cmd_drive(args: argparse.Namespace) -> int:
             connect=args.connect,
             name="drive",
             config_path=config,
+            secure=bool(getattr(args, "secure", False)),
         )
     except Exception as e:
         print(f"Could not open session: {e}", file=sys.stderr)
@@ -130,6 +131,11 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="optional fleet id",
     )
     p_drive.add_argument("--connect", default=None, help="override ROSIE_CONNECT")
+    p_drive.add_argument(
+        "--secure",
+        action="store_true",
+        help="authenticate to a secure router (usrpwd / host secret)",
+    )
     p_drive.add_argument(
         "--config",
         default=None,

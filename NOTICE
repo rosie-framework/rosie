@@ -11,7 +11,7 @@ Downloaded by `rosie setup` / `rosie router` from
 https://download.eclipse.org/zenoh/ into ~/.rosie/bin/
 Upstream: https://zenoh.io / https://github.com/eclipse-zenoh/zenoh
 
-PlatformIO Core (optional, rosie[mcu])
+PlatformIO Core (optional, rosie-framework[mcu])
 -------------------------------------------
 License: Apache-2.0
 Installed via pip when using the firmware extra.

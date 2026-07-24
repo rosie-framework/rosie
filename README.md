@@ -1,5 +1,9 @@
 # Rosie
 
+<p align="center">
+  <img src="assets/rosie-icon.png" alt="Rosie" width="160" />
+</p>
+
 Rosie is the easy **fleet layer** for mixed robots — MCU, Linux, and ROS —
 from a normal laptop. Lightweight to install, low learning curve, and built so
 multi-robot teams are first-class whether each robot runs Rosie **natively** or
@@ -67,7 +71,7 @@ rosie drive --config robot.yaml
 
 ```bash
 # on the robot — robot.yaml with platform: linux
-pip install "rosie[linux]"
+pip install "rosie-framework[linux]"
 rosie run --config robot.yaml
 # laptop: rosie teleop / viz / fleet list — same as MCU
 ```
@@ -76,7 +80,7 @@ rosie run --config robot.yaml
 
 ```bash
 # on the robot (ROS already running)
-pip install rosie
+pip install rosie-framework
 rosie agent init --robot turtle1 --fleet lab --connect tcp/<router>:7447
 rosie agent run
 # laptop: same teleop / viz / fleet tools — no ROS on the laptop
@@ -110,6 +114,8 @@ python examples/minimal-pub-sub/listener.py
 | `rosie drivers list` | Print supported / planned driver and base inventory |
 
 Fleet networking (dedicated AP vs SoftAP): [docs/fleet-networking.md](docs/fleet-networking.md).
+Fleet management (init / add / router): [docs/fleet-management.md](docs/fleet-management.md).
+Security (solo/fleet × open/secure): [docs/security.md](docs/security.md).
 
 ## Docs
 
@@ -121,6 +127,8 @@ Fleet networking (dedicated AP vs SoftAP): [docs/fleet-networking.md](docs/fleet
 - [Drivers](docs/drivers.md) — inventory (`rosie drivers list`)
 - [Architecture](docs/architecture.md)
 - [Fleet networking](docs/fleet-networking.md)
+- [Fleet management](docs/fleet-management.md) — membership, SoftAP vs shared Wi‑Fi vs fleet
+- [Security](docs/security.md) — four modes (open/secure), allowlist, ESP32 limits
 - [Conventions](docs/conventions.md) — topics, robot/fleet identity, fleet robot contract
 - [Messages & codegen](docs/messages.md)
 - [Writing sessions (Python)](docs/writing-sessions.md)
@@ -134,6 +142,7 @@ rosie/
   python/          # pip package `rosie` + CLI (run, agent, tools, …)
   firmware/        # MCU library (Session, DiffDriveStack, drivers) — linked via `rosie mcu setup`
   interfaces/      # std_msgs.yaml + gen.py
+  assets/          # brand mark (Rosie the Riveter–inspired icon)
   docs/
   examples/        # minimal talker/listener + sample fleet manifest
   tools/           # sample zenohd config (also packaged in the wheel)

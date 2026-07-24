@@ -111,6 +111,8 @@ class MobileBaseRuntime:
             fleet=fleet if fleet is not None else cfg.fleet,
             connect=connect or cfg.connect,
             name="run",
+            user=cfg.zenoh_user,
+            password=cfg.fleet_secret,
         )
         self.session.subscribe_json(topics.CMD_VEL, self._on_cmd_vel)
         self.session.subscribe_json(topics.GOTO, self._on_goto)

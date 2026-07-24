@@ -63,7 +63,7 @@ not care whether a given robot is native or bridged.
 Fleets only matter if people can actually stand them up.
 
 1. **Install in minutes.**  
-   `pip install rosie` (optional `[mcu]`, `[linux]`, `[camera]`) on macOS,
+   `pip install rosie-framework` (optional `[mcu]`, `[linux]`, `[camera]`) on macOS,
    Linux, or Windows. No distro pin, no robostack rabbit hole, no DDS/RMW
    wrestling before you can publish a twist or list a fleet.
 
@@ -129,7 +129,7 @@ never need firmware tooling.
 | Dimension | ROS 2 | Rosie |
 |-----------|-------|-------|
 | Focus | General robotics middleware | Lightweight **fleet** layer + optional native stack |
-| Install (host) | Distro / apt / robostack; heavy tooling | `pip install rosie` (+ optional extras) |
+| Install (host) | Distro / apt / robostack; heavy tooling | `pip install rosie-framework` (+ optional extras) |
 | macOS / Windows host | Possible but painful (DDS, RMW) | First-class: Zenoh + Python |
 | Transport | DDS via RMW | Zenoh (`rosie router` / zenohd) |
 | Discovery | Flat multicast peer discovery | Brokered clients → router; presence for membership |
@@ -180,7 +180,7 @@ never need firmware tooling.
 | MCU + host + Linux robots on a shared demo network | Zenoh **clients** → `rosie router`; dedicated AP for fleets |
 | Message definitions drift between Python and C++ | Single `interfaces/std_msgs.yaml` → generate both |
 | Opaque binary wires | JSON payloads (plus raw bytes for images) |
-| Heavy install for a teaching fleet | `pip install rosie` + optional `[mcu]` / `[linux]` |
+| Heavy install for a teaching fleet | `pip install rosie-framework` + optional `[mcu]` / `[linux]` |
 | Driving a native car requires many packages | `robot.yaml` + DiffDriveStack or `rosie run` |
 
 ## Framework vs application

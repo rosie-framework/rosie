@@ -12,6 +12,7 @@ def cmd_teleop(args: argparse.Namespace) -> int:
     run_teleop(
         robot=args.robot,
         fleet=args.fleet,
+        secure=bool(getattr(args, "secure", False)),
         v_fwd=args.v_fwd,
         v_turn=args.v_turn,
         pub_hz=args.hz,
@@ -30,6 +31,11 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--fleet",
         default=os.environ.get("ROSIE_FLEET"),
         help="optional fleet id (default: ROSIE_FLEET)",
+    )
+    p_tele.add_argument(
+        "--secure",
+        action="store_true",
+        help="authenticate to a secure router (usrpwd / host secret)",
     )
     p_tele.add_argument("--v-fwd", type=float, default=0.25, help="forward speed m/s")
     p_tele.add_argument("--v-turn", type=float, default=1.0, help="yaw rate rad/s")

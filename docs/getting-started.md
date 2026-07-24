@@ -112,7 +112,7 @@ default path.
 
 For a Pi / Jetson DIY base Rosie drives directly (no ROS). Install
 `pip install -e "python[linux]"` on the robot (or use a BYO Python
-`MotorDriver` with plain `pip install rosie`).
+`MotorDriver` with plain `pip install rosie-framework`).
 
 ```bash
 # robot.yaml with platform: linux + motors (tb6612 / pca9685 / python)
@@ -147,7 +147,9 @@ For one or more robots (including heterogeneous types):
    `rosie viz --bag run.rosiebag` (optional `--start` / `--end` / `--key`
    filters, same as `rosie bag play`). Details: [Viz](viz.md).
 
-Full detail: [Fleet networking](fleet-networking.md).
+Full detail: [Fleet networking](fleet-networking.md). Membership:
+[Fleet management](fleet-management.md). Open vs secure modes:
+[Security](security.md).
 
 ### Solo SoftAP fallback (one MCU)
 
@@ -183,8 +185,8 @@ More identity and topic rules: [Conventions](conventions.md).
 | MCU connect attempts fail then stop | Start `rosie router` after joining the shared network, then reset the board |
 | `pip` / `rosie setup` fails offline | Demo AP often has no internet — install and `rosie setup` first |
 | `zenohd not found` | Run `rosie setup`, or put `zenohd` on PATH / set `ROSIE_ZENOHD` |
-| PlatformIO missing | `pip install "rosie[mcu]"` |
-| `snap` / `cam` fails or prints “opencv not installed” | `pip install "rosie[camera]"` (OpenCV for host viewing only) |
+| PlatformIO missing | `pip install "rosie-framework[mcu]"` |
+| `snap` / `cam` fails or prints “opencv not installed” | `pip install "rosie-framework[camera]"` (OpenCV for host viewing only) |
 | Publish/subscribe wrong keys | Use relative names under `Session(robot=...)`, or absolute `/...` ([Conventions](conventions.md)) |
 | Firmware JSON publish fails / truncated | Payload exceeds ~384-byte MCU buffer ([Firmware](firmware.md)) |
 | Trying to run two SoftAP cars at once | SoftAP is solo-only — use a [dedicated AP](fleet-networking.md) |
@@ -208,6 +210,8 @@ MCU escape hatch: raw `pio …` from a PlatformIO robot directory. Details:
 - [Robots: native vs bridge](bridges.md) — `rosie agent` for ROS / commercial robots
 - [Drivers](drivers.md) — inventory (`rosie drivers list`)
 - [Fleet networking](fleet-networking.md) — dedicated AP, SoftAP fallback, discovery
+- [Fleet management](fleet-management.md) — init / add / router day-to-day
+- [Security](security.md) — solo/fleet × open/secure, allowlist, ESP32 limits
 - [Writing sessions](writing-sessions.md)
 - [Viz](viz.md) — `rosie viz` browser map / bag scrub
 - [Conventions](conventions.md) — topics, units, robot/fleet identity

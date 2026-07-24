@@ -70,9 +70,10 @@ bool MobileBase::useImuHeading() const {
   return kin->useImuHeading();
 }
 
-bool MobileBase::begin(const char* connect_locator, const char* mode) {
+bool MobileBase::begin(const char* connect_locator, const char* mode,
+                       const char* user, const char* password) {
   if (!session_.ready()) {
-    if (!session_.open(connect_locator, mode)) return false;
+    if (!session_.open(connect_locator, mode, user, password)) return false;
   }
   declareEndpoints_();
   ok_ = true;

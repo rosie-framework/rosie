@@ -35,11 +35,20 @@ def run_agent(cfg: AgentConfig) -> int:
     signal.signal(signal.SIGTERM, _on_signal)
 
     try:
+        if cfg.path is not None:
+            from rosie.auth import maybe_sync_secret_for_agent_config
+
+            if maybe_sync_secret_for_agent_config(cfg.path, cfg.raw):
+                print(f"Synced bus secret → {cfg.path.name}", file=sys.stderr)
+                cfg = load_agent_config(cfg.path)
+
         session = Session(
             robot=cfg.robot,
             fleet=cfg.fleet,
             connect=cfg.connect,
             name="agent",
+            user=cfg.user or (cfg.fleet if cfg.fleet_secret else None),
+            password=cfg.fleet_secret,
         )
         bridge = Ros2Bridge(session, cfg)
         bridge.start()

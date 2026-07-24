@@ -141,6 +141,9 @@ are documented in [Mobile base → Navigation helpers](mobile-base.md#navigation
 - Networking: **dedicated AP** + all robots/hosts as Wi‑Fi stations + one
   `rosie router` — see [Fleet networking](fleet-networking.md). SoftAP is
   solo-robot fallback only.
+- Membership: [Fleet management](fleet-management.md)
+  (`rosie fleet init` / `add`, `router --fleet`). Open vs secure:
+  [Security](security.md) (`--secure` for usrpwd + allowlist).
 - Publish `presence` (~1 Hz) so hosts can discover live robots.
 - Host: `rosie fleet list|wait|topics`, `rosie topic list|echo`, `rosie bag …`,
   or `from rosie import Fleet, load_manifest`.

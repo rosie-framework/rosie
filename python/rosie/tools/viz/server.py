@@ -25,7 +25,7 @@ def create_app(bridge: VizBridge) -> Any:
     except ImportError as e:
         raise ImportError(
             "rosie viz requires starlette and uvicorn (installed with Rosie core).\n"
-            '  pip install "rosie"'
+            '  pip install "rosie-framework"'
         ) from e
 
     clients: set[WebSocket] = set()
@@ -101,7 +101,7 @@ def run_server(
     except ImportError as e:
         raise ImportError(
             "rosie viz requires starlette and uvicorn (installed with Rosie core).\n"
-            '  pip install "rosie"'
+            '  pip install "rosie-framework"'
         ) from e
 
     app = create_app(bridge)

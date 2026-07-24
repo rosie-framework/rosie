@@ -9,7 +9,7 @@ from rosie.robot_config import RobotConfig
 
 _LINUX_HINT = (
     'This driver needs the linux extra:\n'
-    '  pip install "rosie[linux]"'
+    '  pip install "rosie-framework[linux]"'
 )
 
 

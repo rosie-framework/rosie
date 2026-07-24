@@ -8,11 +8,18 @@ import sys
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from rosie.auth import maybe_sync_secret_for_robot_config
     from rosie.run.runtime import run_from_config
     from rosie.robot_config import load_robot_config
 
     try:
-        cfg = load_robot_config(args.config)
+        cfg_path = Path(args.config).expanduser().resolve()
+        cfg = load_robot_config(cfg_path)
+        if maybe_sync_secret_for_robot_config(cfg_path, cfg.raw):
+            print(f"Synced bus secret → {cfg_path.name}")
+            cfg = load_robot_config(cfg_path)
     except (OSError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

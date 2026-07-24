@@ -402,7 +402,7 @@ def export_mcap(
     except ImportError as e:
         raise ImportError(
             "rosie bag export requires the mcap package.\n"
-            '  pip install "rosie"   # or: pip install mcap'
+            '  pip install "rosie-framework"   # or: pip install mcap'
         ) from e
 
     bag_path = Path(path).expanduser()

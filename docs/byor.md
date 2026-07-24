@@ -6,7 +6,9 @@ you'd rather not rewrite (e.g. TurtleBot), keep its stack and run **`rosie
 agent`** on the robot: [Robots: native vs bridge](bridges.md).
 
 For shared names and units, see [Conventions](conventions.md). For networking,
-see [Fleet networking](fleet-networking.md). For the batteries-included ground
+see [Fleet networking](fleet-networking.md). For membership,
+see [Fleet management](fleet-management.md). For open vs secure buses,
+see [Security](security.md). For the batteries-included ground
 base path, see [Mobile base](mobile-base.md) and [Drivers](drivers.md).
 
 ## Choose a platform
@@ -137,8 +139,8 @@ On a Pi or Jetson, Rosie drives the base from the same `robot.yaml` shape, with
 ## L1. Install
 
 ```bash
-pip install "rosie[linux]"   # built-in tb6612 / gpio_quadrature / mpu6050 / pca9685
-# or: pip install rosie      # BYO Python MotorDriver only
+pip install "rosie-framework[linux]"   # built-in tb6612 / gpio_quadrature / mpu6050 / pca9685
+# or: pip install rosie-framework      # BYO Python MotorDriver only
 ```
 
 ## L2. Write `robot.yaml`
@@ -177,7 +179,7 @@ motors:
 ```
 
 Implement `set_channels(channels)`, `stop()`, and `close()`. Optional
-`from_config(cls, config)` classmethod. No `rosie[linux]` required for BYO.
+`from_config(cls, config)` classmethod. No `rosie-framework[linux]` required for BYO.
 
 ## L4. Run
 

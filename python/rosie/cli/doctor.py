@@ -127,7 +127,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print(
             f"[--] SoftAP-like address — local IPv4: {', '.join(lan) or 'none'} "
             "(solo SoftAP often uses 192.168.4.2; fleets use a dedicated AP — "
-            "see docs/fleet-networking.md)"
+            "see docs/fleet-networking.md; secrets/allowlist — docs/fleet-management.md)"
         )
 
     ports = _list_serial_ports()
@@ -143,11 +143,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     try:
         import platformio  # noqa: F401
 
-        check("platformio (rosie[mcu])", True)
+        check("platformio (rosie-framework[mcu])", True)
     except ImportError:
         print(
             "[--] platformio — not installed "
-            '(ok for host-only; use: pip install "rosie[mcu]")'
+            '(ok for host-only; use: pip install "rosie-framework[mcu]")'
         )
 
     print()

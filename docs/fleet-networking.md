@@ -129,12 +129,16 @@ rosie fleet wait --manifest examples/fleet-manifest.json
 rosie fleet wait --fleet lab --expect car1,car2 --status ready
 ```
 
-`Fleet.wait(...)` / `load_manifest(...)` are the Python APIs. Manifest
-`defaults` / per-robot `params` are for application code to read — Rosie does
-not push a remote parameter server. MCU identity stays flash/env-fixed.
+`Fleet.wait(...)` / `load_manifest(...)` / `resolve_manifest(...)` are the Python
+APIs. Prefer `rosie fleet init` + `~/.rosie/fleets/<id>/` for day-to-day fleets
+([Fleet management](fleet-management.md)). Manifest `defaults` / per-robot
+`params` are for application code to read — Rosie does not push a remote
+parameter server. MCU identity stays flash/env-fixed.
 
 ## Related docs
 
+- [Fleet management](fleet-management.md) — init / add / router day-to-day
+- [Security](security.md) — open vs secure modes, allowlist, ESP32 limits
 - [Architecture](architecture.md) — diagrams and SoftAP fallback notes
 - [Conventions](conventions.md) — robot / fleet topic paths
 - [BYOR](byor.md) — standing up a new robot

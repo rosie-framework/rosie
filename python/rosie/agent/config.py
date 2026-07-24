@@ -21,6 +21,8 @@ class AgentConfig:
     robot: str
     fleet: str | None = None
     connect: str | None = None
+    user: str | None = None
+    fleet_secret: str | None = None
     cmd_vel: str = "/cmd_vel"
     odom: str = "/odom"
     profile: str | None = None
@@ -35,6 +37,10 @@ class AgentConfig:
             out["fleet"] = self.fleet
         if self.connect:
             out["connect"] = self.connect
+        if self.user:
+            out["user"] = self.user
+        if self.fleet_secret:
+            out["fleet_secret"] = self.fleet_secret
         ros2: dict[str, Any] = {
             "cmd_vel": self.cmd_vel,
             "odom": self.odom,
@@ -155,10 +161,15 @@ def load_agent_config(
     if connect_id is None:
         connect_id = os.environ.get("ROSIE_CONNECT")
 
+    user = raw.get("user")
+    fleet_secret = raw.get("fleet_secret")
+
     return AgentConfig(
         robot=str(robot_id).strip(),
         fleet=str(fleet_id).strip() if fleet_id else None,
         connect=str(connect_id).strip() if connect_id else None,
+        user=str(user).strip() if user else None,
+        fleet_secret=str(fleet_secret).strip() if fleet_secret else None,
         cmd_vel=str(ros2.get("cmd_vel", "/cmd_vel")),
         odom=str(ros2.get("odom", "/odom")),
         profile=str(ros2.get("profile", prof_name)),

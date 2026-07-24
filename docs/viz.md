@@ -4,7 +4,7 @@ Lightweight browser spatial viewer for live fleet poses and offline bags.
 Included in the core `pip install`; opens a local page — no npm, no TF, no URDF.
 
 ```bash
-pip install rosie          # or: pip install -e python from a checkout
+pip install rosie-framework          # or: pip install -e python from a checkout
 rosie viz --fleet lab      # http://127.0.0.1:8765
 ```
 

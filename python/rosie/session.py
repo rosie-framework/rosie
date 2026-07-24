@@ -24,6 +24,43 @@ def resolve_connect(connect: str | None = None) -> str:
     return connect or os.environ.get("ROSIE_CONNECT") or DEFAULT_CONNECT
 
 
+def _open_zenoh(
+    connect: str,
+    *,
+    user: str | None = None,
+    password: str | None = None,
+    fleet: str | None = None,
+    secure: bool = False,
+) -> Any:
+    """Open a Zenoh session.
+
+    Usrpwd is applied when ``password`` / ``user`` are given explicitly, or when
+    ``secure=True`` and a host secret resolves. Open mode (default) never reads
+    leftover secret files.
+    """
+    from .auth import (
+        BusCredentials,
+        apply_usrpwd_to_zenoh_config,
+        credentials_for,
+        resolve_secret_plaintext,
+    )
+
+    conf = zenoh.Config()
+    conf.insert_json5("connect/endpoints", f'["{connect}"]')
+    if user and password:
+        creds = BusCredentials(user=user, password=password)
+    elif password is not None:
+        creds = credentials_for(fleet=fleet, password=password)
+    elif secure:
+        pwd = resolve_secret_plaintext(fleet=fleet, secure=True)
+        creds = credentials_for(fleet=fleet, password=pwd)
+    else:
+        creds = None
+    if creds is not None:
+        apply_usrpwd_to_zenoh_config(conf, creds)
+    return zenoh.open(conf)
+
+
 def _normalize_id(value: str, *, label: str) -> str:
     value = str(value).strip().strip("/")
     if not value:
@@ -67,6 +104,10 @@ class Session:
         fleet: str | None = None,
         connect: str | None = None,
         name: str | None = None,
+        *,
+        user: str | None = None,
+        password: str | None = None,
+        secure: bool = False,
     ):
         self.name = name or "session"
         self.robot = _normalize_robot(
@@ -77,10 +118,13 @@ class Session:
             fleet if fleet is not None else env_fleet
         )
         self.connect = resolve_connect(connect)
-
-        conf = zenoh.Config()
-        conf.insert_json5("connect/endpoints", f'["{self.connect}"]')
-        self.session = zenoh.open(conf)
+        self.session = _open_zenoh(
+            self.connect,
+            user=user,
+            password=password,
+            fleet=self.fleet,
+            secure=secure,
+        )
 
         self._subs: list[Any] = []
         self._timers: list[_Timer] = []

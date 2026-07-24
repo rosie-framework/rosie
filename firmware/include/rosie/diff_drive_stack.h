@@ -127,20 +127,27 @@ class DiffDriveStack {
       }
     }
 
+    bool net_ok = false;
     if (strcmp(ROSIE_NETWORK_MODE, "station") == 0) {
-      wifiStation(ROSIE_WIFI_SSID, ROSIE_WIFI_PASSWORD);
+      net_ok = wifiStation(ROSIE_WIFI_SSID, ROSIE_WIFI_PASSWORD);
     } else {
       softAP(ROSIE_WIFI_SSID, ROSIE_WIFI_PASSWORD, 1);
+      net_ok = true;
     }
 
-    for (int attempt = 1; attempt <= zenoh_retries; attempt++) {
-      Serial.printf("Rosie connect attempt %d/%d ...\n", attempt, zenoh_retries);
-      delay(1500);
-      if (base_.begin(ROSIE_ZENOH_CONNECT, ROSIE_ZENOH_MODE)) break;
-      if (attempt == zenoh_retries) {
-        Serial.println("Rosie not connected — USB serial still works.");
-        Serial.println("Start zenohd on the laptop and reset the board to retry.");
+    if (net_ok) {
+      for (int attempt = 1; attempt <= zenoh_retries; attempt++) {
+        Serial.printf("Rosie connect attempt %d/%d ...\n", attempt, zenoh_retries);
+        delay(1500);
+        if (base_.begin(ROSIE_ZENOH_CONNECT, ROSIE_ZENOH_MODE,
+                        ROSIE_ZENOH_USER, ROSIE_ZENOH_PASSWORD)) break;
+        if (attempt == zenoh_retries) {
+          Serial.println("Rosie not connected — USB serial still works.");
+          Serial.println("Start zenohd on the laptop and reset the board to retry.");
+        }
       }
+    } else {
+      Serial.println("Rosie: skipping Zenoh (Wi-Fi not connected).");
     }
 
     if (cam_ && base_.ready()) {

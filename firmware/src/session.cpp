@@ -1,5 +1,6 @@
 #include "rosie/session.h"
 #include <zenoh-pico.h>
+#include <esp_rom_sys.h>
 #include <string.h>
 
 namespace rosie {
@@ -111,23 +112,36 @@ bool Session::resolveFleetName(const char* name, char* out, size_t out_len) cons
   return true;
 }
 
-bool Session::open(const char* connect_locator, const char* mode) {
+bool Session::open(const char* connect_locator, const char* mode,
+                   const char* user, const char* password) {
   if (!impl_ || ok_) return ok_;
 
   z_owned_config_t config;
   z_config_default(&config);
   zp_config_insert(z_config_loan_mut(&config), Z_CONFIG_MODE_KEY, mode);
   zp_config_insert(z_config_loan_mut(&config), Z_CONFIG_CONNECT_KEY, connect_locator);
+  if (user && user[0] && password && password[0]) {
+    // zenoh-pico currently exposes USER/PASSWORD config keys but does not
+    // implement usrpwd handshake. Keep inserting for forward compatibility;
+    // authenticated routers will reject MCU clients until pico supports auth.
+    zp_config_insert(z_config_loan_mut(&config), Z_CONFIG_USER_KEY, user);
+    zp_config_insert(z_config_loan_mut(&config), Z_CONFIG_PASSWORD_KEY, password);
+    Serial.printf("Rosie: Zenoh auth user='%s' (pico may ignore usrpwd)\n", user);
+    esp_rom_printf("Rosie: Zenoh auth user='%s' (pico may ignore usrpwd)\n", user);
+  }
 
   Serial.printf("Rosie: opening Zenoh session to %s ...\n", connect_locator);
+  esp_rom_printf("Rosie: opening Zenoh session to %s ...\n", connect_locator);
   if (z_open(&impl_->session, z_config_move(&config), NULL) < 0) {
     Serial.println("Rosie: unable to open session (is zenohd running?).");
+    esp_rom_printf("Rosie: unable to open Zenoh session.\n");
     return false;
   }
 
   startBackgroundTasks();
   ok_ = true;
   Serial.println("Rosie: Zenoh session ready.");
+  esp_rom_printf("Rosie: Zenoh session ready.\n");
   return true;
 }
 

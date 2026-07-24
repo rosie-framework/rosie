@@ -57,7 +57,7 @@ introspection**. Interop at the edge — same philosophy as `rosie bag export`
 | Layer | Where | What |
 |-------|-------|------|
 | Vendor ROS (drivers, optional Nav2) | Robot | Existing stack, unchanged |
-| Rosie agent | Robot | `pip install rosie` + `rosie agent run` |
+| Rosie agent | Robot | `pip install rosie-framework` + `rosie agent run` |
 | Rosie tools | Laptop | teleop, viz, bag, fleet — **no ROS** |
 
 You install ROS only on the robot (usually already there from the vendor image).
@@ -74,7 +74,7 @@ so `rclpy` is importable). Rosie does **not** install ROS.
 # on the robot
 python3 -m venv --system-site-packages ~/rosie-venv
 source ~/rosie-venv/bin/activate
-pip install rosie
+pip install rosie-framework
 # source ROS 2 if not already in the environment
 # source /opt/ros/$ROS_DISTRO/setup.bash
 
@@ -138,8 +138,8 @@ DIY Pi/Jetson robots that Rosie drives use the same `robot.yaml` shape as MCU,
 with `platform: linux` and Linux driver pins (BCM / I2C). On the robot:
 
 ```bash
-pip install "rosie[linux]"   # lgpio + smbus2 for built-in drivers
-# or: pip install rosie      # BYO Python MotorDriver only
+pip install "rosie-framework[linux]"   # lgpio + smbus2 for built-in drivers
+# or: pip install rosie-framework      # BYO Python MotorDriver only
 
 rosie run --config robot.yaml --dry-run   # validate
 rosie run --config robot.yaml             # control loop (foreground)

@@ -73,7 +73,7 @@ and construct `MobileBase` yourself (skip `DiffDriveStack`). See
 **Linux:** set `motors.driver: python` and `motors.class: mypkg:MyClass` where
 the class implements `set_channels`, `stop`, and `close` (optional
 `from_config` classmethod). Same pattern for `encoders` / `imu`. Built-in
-drivers need `pip install "rosie[linux]"`.
+drivers need `pip install "rosie-framework[linux]"`.
 
 To contribute a chip upstream: add sources under `firmware/` or
 `python/rosie/run/drivers/`, an entry in `registry.yaml` (with `platforms`),

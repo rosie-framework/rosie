@@ -46,8 +46,11 @@ class Session {
    */
   bool resolveFleetName(const char* name, char* out, size_t out_len) const;
 
-  /** Open session to zenohd. mode is usually "client". */
-  bool open(const char* connect_locator, const char* mode = "client");
+  /** Open session to zenohd. mode is usually "client".
+   *  Optional ``user``/``password`` enable Zenoh usrpwd (password may be SHA-256 hex).
+   */
+  bool open(const char* connect_locator, const char* mode = "client",
+            const char* user = nullptr, const char* password = nullptr);
   bool ready() const { return ok_; }
   void poll();
   void startBackgroundTasks();

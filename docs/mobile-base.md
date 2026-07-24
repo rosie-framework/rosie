@@ -181,7 +181,7 @@ control:
 ```
 
 ```bash
-pip install "rosie[linux]"          # built-in tb6612 / gpio / mpu6050 / pca9685
+pip install "rosie-framework[linux]"          # built-in tb6612 / gpio / mpu6050 / pca9685
 rosie run --config robot.yaml --dry-run
 rosie run --config robot.yaml
 ```
@@ -190,7 +190,7 @@ The runtime mirrors firmware `MobileBase`: `cmd_vel`, `goto` / `nav_result`,
 `cmd` (`stop` / `zero`), `pose`, `presence`, teleop deadman. Laptop tools
 (`teleop`, `viz`, `fleet`, `MobileRobot`) work unchanged.
 
-**BYO driver** (no `rosie[linux]` needed):
+**BYO driver** (no `rosie-framework[linux]` needed):
 
 ```yaml
 motors:
@@ -226,7 +226,7 @@ rosie tune --config robot.yaml
 ```
 
 Drive REPL includes optional camera `snap` / `cam` when the robot publishes
-JPEG. For the OpenCV viewer on the host: `pip install "rosie[camera]"` (robots
+JPEG. For the OpenCV viewer on the host: `pip install "rosie-framework[camera]"` (robots
 can publish `camera/compressed` without that extra).
 
 ### Navigation helpers

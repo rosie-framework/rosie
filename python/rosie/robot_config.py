@@ -133,6 +133,26 @@ class RobotConfig:
         return str(self.raw.get("network", {}).get("mode", "softap"))
 
     @property
+    def fleet_secret(self) -> str | None:
+        net = self.raw.get("network") or {}
+        s = net.get("fleet_secret") or net.get("zenoh_password")
+        if s is None or s == "":
+            return None
+        return str(s)
+
+    @property
+    def zenoh_user(self) -> str | None:
+        net = self.raw.get("network") or {}
+        u = net.get("user") or net.get("zenoh_user")
+        if u is None or u == "":
+            if self.fleet:
+                return self.fleet
+            if self.fleet_secret:
+                return "rosie"
+            return None
+        return str(u)
+
+    @property
     def platform(self) -> str:
         p = self.raw.get("platform", "mcu")
         return str(p or "mcu").strip().lower()
@@ -336,6 +356,27 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
         f"static const char* ROSIE_WIFI_PASSWORD = {_c_str(str(net.get('password', '')))};",
         f"static const char* ROSIE_ZENOH_CONNECT = {_c_str(str(net.get('connect', 'tcp/192.168.4.2:7447')))};",
         f"static const char* ROSIE_ZENOH_MODE = {_c_str(str(net.get('zenoh_mode', 'client')))};",
+    ]
+    # Auth (optional): emit SHA-256 hex of fleet_secret to match host zenoh usrpwd hashing.
+    secret = cfg.fleet_secret
+    user = cfg.zenoh_user
+    if secret and user:
+        from .auth import sha256_hex
+
+        lines.extend(
+            [
+                f"static const char* ROSIE_ZENOH_USER = {_c_str(user)};",
+                f"static const char* ROSIE_ZENOH_PASSWORD = {_c_str(sha256_hex(secret))};",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "static const char* ROSIE_ZENOH_USER = nullptr;",
+                "static const char* ROSIE_ZENOH_PASSWORD = nullptr;",
+            ]
+        )
+    lines += [
         "",
         f"static const float ROSIE_WHEEL_DIAMETER = {_c_float(base.get('wheel_diameter', 0.068))};",
         f"static const float ROSIE_WHEEL_BASE = {_c_float(base.get('wheel_base', 0.13))};",

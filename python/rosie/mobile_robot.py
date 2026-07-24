@@ -50,6 +50,7 @@ class MobileRobot:
         connect: str | None = None,
         name: str = "mobile",
         config_path: str | Path | None = None,
+        secure: bool = False,
     ) -> None:
         if config_path:
             from rosie.robot_config import load_robot_config
@@ -62,12 +63,25 @@ class MobileRobot:
             # Historical host teleop uses m/s; YAML kv/kw are firmware PWM gains.
             self._v_fwd = float(teleop.get("v_fwd", 0.25))
             self._v_turn = float(teleop.get("v_turn", 1.2))
+            # Prefer explicit password from robot.yaml when present.
+            user = cfg.zenoh_user
+            password = cfg.fleet_secret
         else:
             self._v_fwd = 0.25
             self._v_turn = 1.2
+            user = None
+            password = None
 
         robot = robot or os.environ.get("ROSIE_ROBOT", "robot")
-        self.session = Session(robot=robot, fleet=fleet, connect=connect, name=name)
+        self.session = Session(
+            robot=robot,
+            fleet=fleet,
+            connect=connect,
+            name=name,
+            user=user,
+            password=password,
+            secure=secure and not password,
+        )
         self.robot_id = robot
         self._pose: dict = {}
         self._nav_result: dict | None = None

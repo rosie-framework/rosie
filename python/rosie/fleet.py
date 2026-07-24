@@ -48,13 +48,28 @@ class Fleet:
     live under ``{fleet}/_fleet/...``. Robot presence is ``{fleet}/{robot}/presence``.
     """
 
-    def __init__(self, fleet: str, connect: str | None = None):
+    def __init__(
+        self,
+        fleet: str,
+        connect: str | None = None,
+        *,
+        allowlist: set[str] | None = None,
+        user: str | None = None,
+        password: str | None = None,
+        secure: bool = False,
+    ):
+        from .session import _open_zenoh
+
         self.fleet = _normalize_fleet(fleet)
         self.connect = resolve_connect(connect)
-
-        conf = zenoh.Config()
-        conf.insert_json5("connect/endpoints", f'["{self.connect}"]')
-        self._session = zenoh.open(conf)
+        self.allowlist = set(allowlist) if allowlist is not None else None
+        self._session = _open_zenoh(
+            self.connect,
+            user=user,
+            password=password,
+            fleet=self.fleet,
+            secure=secure,
+        )
         self._subs: list[Any] = []
         self._presence_sub: Any | None = None
         self._lock = threading.Lock()
@@ -131,8 +146,18 @@ class Fleet:
         self._presence_sub = self._session.declare_subscriber(key, self._on_presence)
         self._subs.append(self._presence_sub)
 
-    def robots(self, ttl_s: float = 3.0, wait_s: float = 0.5) -> list[RobotPresence]:
-        """Return robots with presence fresher than ``ttl_s`` seconds."""
+    def robots(
+        self,
+        ttl_s: float = 3.0,
+        wait_s: float = 0.5,
+        *,
+        include_all: bool = False,
+    ) -> list[RobotPresence]:
+        """Return robots with presence fresher than ``ttl_s`` seconds.
+
+        When an allowlist is set, non-enrolled ids are omitted unless
+        ``include_all`` is True.
+        """
         self._ensure_presence_sub()
         time.sleep(max(0.0, wait_s))
         now = time.time()
@@ -141,8 +166,23 @@ class Fleet:
             stale = [rid for rid, (ts, _) in self._presence.items() if now - ts > ttl_s]
             for rid in stale:
                 del self._presence[rid]
-            out = [msg for _, msg in sorted(self._presence.values(), key=lambda x: x[1].robot_id)]
+            msgs = [msg for _, msg in sorted(self._presence.values(), key=lambda x: x[1].robot_id)]
+        for msg in msgs:
+            if (
+                not include_all
+                and self.allowlist is not None
+                and msg.robot_id not in self.allowlist
+            ):
+                continue
+            out.append(msg)
         return out
+
+    def ignored_robots(self, ttl_s: float = 3.0, wait_s: float = 0.5) -> list[RobotPresence]:
+        """Presence ids seen but not on the allowlist (empty if no allowlist)."""
+        if self.allowlist is None:
+            return []
+        all_robots = self.robots(ttl_s=ttl_s, wait_s=wait_s, include_all=True)
+        return [m for m in all_robots if m.robot_id not in self.allowlist]
 
     def wait(
         self,
@@ -224,11 +264,14 @@ class Fleet:
         *,
         selector: str | None = None,
         wait_s: float = 2.0,
+        include_all: bool = False,
     ) -> TopicMap:
         """Passively discover keys under the fleet (listen for ``wait_s`` seconds).
 
         Default selector is ``{fleet}/**``. Returns topics grouped by robot id
         (relative names under each robot, or under ``_fleet``).
+        When an allowlist is set, non-enrolled robots are omitted unless
+        ``include_all`` is True (``_fleet`` is always kept).
         """
         key = self.resolve_key(selector or "**")
         seen: set[str] = set()
@@ -257,7 +300,6 @@ class Fleet:
             keys = sorted(seen)
         for k in keys:
             if not k.startswith(prefix):
-                # Still attribute under a synthetic bucket if selector was absolute
                 by_robot.setdefault("_other", set()).add(k)
                 continue
             rest = k[len(prefix) :]
@@ -266,6 +308,13 @@ class Fleet:
                 robot, rel = parts[0], ""
             else:
                 robot, rel = parts[0], parts[1]
+            if (
+                not include_all
+                and self.allowlist is not None
+                and robot != "_fleet"
+                and robot not in self.allowlist
+            ):
+                continue
             by_robot.setdefault(robot, set()).add(rel)
 
         return TopicMap(

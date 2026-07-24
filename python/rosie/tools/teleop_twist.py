@@ -43,6 +43,7 @@ def run_teleop(
     *,
     robot: str = "robot",
     fleet: str | None = None,
+    secure: bool = False,
     v_fwd: float = 0.25,
     v_turn: float = 1.0,
     pub_hz: float = 10.0,
@@ -65,7 +66,7 @@ def run_teleop(
     """
     owns_session = session is None
     if session is None:
-        session = Session(robot=robot, fleet=fleet, name="teleop")
+        session = Session(robot=robot, fleet=fleet, name="teleop", secure=secure)
     topic = topics.CMD_VEL
     resolved = session.resolve_name(topic)
     if keymap is None:

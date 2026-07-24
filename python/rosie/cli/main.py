@@ -16,6 +16,7 @@ from rosie.cli import (
     mcu,
     router,
     run,
+    secret,
     setup,
     teleop,
     topic,
@@ -41,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
         tune,
         drivers,
         fleet,
+        secret,
         topic,
         bag,
         viz,
@@ -79,9 +81,12 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "fleet" and not getattr(args, "fleet_command", None):
         print(
-            "usage: rosie fleet {list,wait,topics,estop,leader} ...",
+            "usage: rosie fleet {init,add,remove,secret,list,wait,topics,estop,leader} ...",
             file=sys.stderr,
         )
+        raise SystemExit(2)
+    if args.command == "secret" and not getattr(args, "secret_command", None):
+        print("usage: rosie secret apply [--config robot.yaml] ...", file=sys.stderr)
         raise SystemExit(2)
     if args.command == "topic" and not getattr(args, "topic_command", None):
         print("usage: rosie topic {list,echo} ...", file=sys.stderr)

@@ -19,7 +19,7 @@ _RCLPY_HINT = (
     "  1. Source your ROS 2 install (e.g. source /opt/ros/$ROS_DISTRO/setup.bash)\n"
     "  2. Use a venv that can see system packages:\n"
     "       python3 -m venv --system-site-packages ~/rosie-venv\n"
-    "       source ~/rosie-venv/bin/activate && pip install rosie\n"
+    "       source ~/rosie-venv/bin/activate && pip install rosie-framework\n"
     "  Rosie does not install ROS — it bridges an existing ROS stack."
 )
 

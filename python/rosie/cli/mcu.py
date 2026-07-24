@@ -20,7 +20,7 @@ def _require_platformio() -> None:
     except ImportError as e:
         print(
             "error: PlatformIO is not installed.\n"
-            '  Install the MCU extra:  pip install "rosie[mcu]"\n'
+            '  Install the MCU extra:  pip install "rosie-framework[mcu]"\n'
             "  Then re-run this command.",
             file=sys.stderr,
         )
@@ -114,7 +114,8 @@ def _run_pio(
 
 
 def _maybe_gen_config(project_dir: Path) -> None:
-    """If robot.yaml exists, regenerate src/generated/robot_config.h."""
+    """If robot.yaml exists, sync host secret when resolvable, then regenerate header."""
+    from rosie.auth import maybe_sync_secret_for_robot_config
     from rosie.robot_config import find_robot_yaml, load_robot_config, write_robot_config_h
 
     yml = find_robot_yaml(project_dir)
@@ -122,6 +123,9 @@ def _maybe_gen_config(project_dir: Path) -> None:
         return
     try:
         cfg = load_robot_config(yml)
+        if maybe_sync_secret_for_robot_config(yml, cfg.raw):
+            print(f"Synced bus secret → {yml.name}")
+            cfg = load_robot_config(yml)
         out = write_robot_config_h(cfg, project_dir)
         print(f"Generated {out} from {yml.name}")
     except Exception as e:
@@ -131,6 +135,7 @@ def _maybe_gen_config(project_dir: Path) -> None:
 
 def cmd_gen_config(args: argparse.Namespace) -> int:
     cwd = Path(args.dir).expanduser().resolve()
+    from rosie.auth import maybe_sync_secret_for_robot_config
     from rosie.robot_config import find_robot_yaml, load_robot_config, write_robot_config_h
 
     yml = Path(args.file).expanduser().resolve() if args.file else find_robot_yaml(cwd)
@@ -138,6 +143,9 @@ def cmd_gen_config(args: argparse.Namespace) -> int:
         print("error: no robot.yaml found (pass --file or place robot.yaml in project)", file=sys.stderr)
         return 2
     cfg = load_robot_config(yml)
+    if maybe_sync_secret_for_robot_config(yml, cfg.raw):
+        print(f"Synced bus secret → {yml.name}")
+        cfg = load_robot_config(yml)
     out = write_robot_config_h(cfg, cwd)
     print(f"Wrote {out}")
     return 0

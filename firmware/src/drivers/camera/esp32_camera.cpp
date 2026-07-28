@@ -1,4 +1,4 @@
-#include "rosie/drivers/esp32_camera.h"
+#include "rosie/drivers/camera/esp32_camera.h"
 #include "esp_camera.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>

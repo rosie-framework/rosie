@@ -1,4 +1,4 @@
-#include "rosie/drivers/quad_encoder.h"
+#include "rosie/drivers/encoders/quad_encoder.h"
 
 namespace rosie {
 

@@ -4,19 +4,22 @@ A **Session** is a process-local Zenoh handle bound to a **robot** (and optional
 **fleet**). Sensors and commands are **topics** under that robot—not separate
 sessions per driver.
 
-For MobileBase robots, prefer the higher-level **`rosie.MobileRobot`** helper or the
-`rosie drive` CLI (see [Mobile base → Host](mobile-base.md#host)). Navigation
-ladder: `goto` (goal) → `pose` (progress) → `nav_result` (done); `drive_to`
-waits on `nav_result` — details in [Navigation helpers](mobile-base.md#navigation-helpers).
+For MobileBase robots, prefer the higher-level **[`MobileRobot`](mobile-robot.md)**
+helper or the `rosie drive` CLI (see [Mobile base → Host](../robots/mobile-base.md#host)).
+Navigation ladder: `goto` (goal) → `pose` (progress) → `nav_result` (done);
+`drive_to` waits on `nav_result` — details in
+[Navigation helpers](../robots/mobile-base.md#navigation-helpers).
 Raw `Session` remains the right tool for custom hosts and non-mobile robots.
 
 ```python
 from rosie import MobileRobot
 
-with MobileRobot(config_path="robot.yaml") as bot:
+with MobileRobot(robot="car1", fleet="lab") as bot:  # or config_path="robot.yaml"
     bot.wait_for_pose()
     bot.drive_to(1.0, 0.0)
 ```
+
+Full kwargs and methods: [MobileRobot](mobile-robot.md).
 
 ```python
 from rosie import Session, topics
@@ -61,7 +64,7 @@ session.resolve_fleet_name("estop")   # → lab/_fleet/estop
 | Absolute | `"/global/estop"` | `global/estop` | `global/estop` |
 | Fleet-scoped | `publish_fleet("estop")` | (requires fleet) | `lab/_fleet/estop` |
 
-`session.resolve_name("cmd_vel")` returns the wire key for logging. See [Conventions](conventions.md).
+`session.resolve_name("cmd_vel")` returns the wire key for logging. See [Conventions](../conventions.md).
 
 ## Publish helpers
 
@@ -104,7 +107,7 @@ session.spin()
 ## Topic constants
 
 `rosie.topics` holds relative suffixes: `POSE`, `LOG`, `CMD_VEL`, `GOTO`, `CMD`,
-`CAMERA_COMPRESSED`, `PRESENCE`. Full table: [Conventions](conventions.md).
+`CAMERA_COMPRESSED`, `PRESENCE`. Full table: [Conventions](../conventions.md).
 
 ## Teleop
 
@@ -123,7 +126,7 @@ Or: `rosie teleop --robot demo`. Pass `on_stop=` for robot-specific deadman
 
 ## Fleet helper
 
-For multi-robot discovery and coordination on the host, use `rosie.Fleet`
-(or `rosie fleet list` / `estop` / `leader`). Networking for fleets uses a
-**dedicated AP** (not SoftAP) — [Fleet networking](fleet-networking.md).
-See also [Conventions](conventions.md).
+For multi-robot discovery and coordination on the host, use **`rosie.Fleet`**
+(or `rosie fleet list` / `wait` / `estop` / `leader`). Kwargs and methods:
+[Fleet](fleet.md). Networking for fleets uses a **dedicated AP** (not SoftAP) —
+[Fleet networking](../fleet/networking.md). See also [Conventions](../conventions.md).

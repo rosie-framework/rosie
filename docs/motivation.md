@@ -33,7 +33,7 @@ makes the **team** the default unit of work.
    MCU (zenoh-pico), Linux native (`rosie run`), and bridged ROS robots
    (`rosie agent`) share a **dedicated AP** and one brokered `rosie router`.
    Not home Wi‑Fi chaos and not one SoftAP per car for fleets. See
-   [Fleet networking](fleet-networking.md).
+   [Fleet networking](fleet/networking.md).
 
 3. **Discovery that scales.**  
    Zenoh clients talk through `rosie router` instead of DDS-style multicast
@@ -73,24 +73,31 @@ Fleets only matter if people can actually stand them up.
    viz. Teaching labs and desk demos do not need an Ubuntu robot PC for the
    laptop.
 
-3. **One schema source for host and MCU.**  
+3. **Optional bus security without SROS2.**  
+   Open by default for SoftAP / ESP32 demos. On shared Wi‑Fi, `rosie router
+   --secure` (and fleet tools with `--secure`) turns on Zenoh usrpwd plus
+   host-side allowlisting — a one-flag path, not a PKI project. MCU fleets
+   stay on open mode until zenoh-pico supports usrpwd. Details:
+   [Security](fleet/security.md).
+
+4. **One schema source for host and MCU.**  
    Edit `interfaces/std_msgs.yaml` once; codegen writes Python and C++. JSON
    on the wire stays readable for debugging; images stay raw bytes.
 
-4. **One file describes a native robot.**  
+5. **One file describes a native robot.**  
    A single `robot.yaml` (drivers, pins, geometry, gains, network) drives MCU
    firmware codegen **and** Linux `rosie run`. Shared sections port across
    platforms; only motor/encoder/IMU blocks are platform-specific. Bridged
    robots use a smaller `agent.yaml` (identity + bus + ROS topic map) — no
    pins, because ROS owns hardware.
 
-5. **Batteries-included mobile base.**  
+6. **Batteries-included mobile base.**  
    Native: `DiffDriveStack` / `MobileBase` (MCU) or `rosie run` (Linux) give
    teleop / goto / deadman / common chip drivers without assembling
    `ros2_control`. Bridged: reuse the robot’s existing stack; agent maps
    `cmd_vel` / odom / presence into the fleet contract.
 
-6. **Simpler mental model.**  
+7. **Simpler mental model.**  
    A **Session** is a process-local Zenoh handle bound to a robot. Sensors and
    commands are **topics under that robot**, not a separate graph node per
    driver. One CLI covers router, doctor, teleop, drive, run, agent, fleet,
@@ -118,7 +125,7 @@ native and bridged robots, not “rewrite every robot in Rosie.”
 
 **Go native** when Rosie would be the robot's first real software stack (MCU,
 DIY Linux). **Bridge** when the robot already has a stack worth keeping
-(commercial / ROS). Decision table: [Robots: native vs bridge](bridges.md).
+(commercial / ROS). Decision table: [Robots: native vs bridge](robots/bridges.md).
 
 ESP32 is not “MCU-only Rosie,” and Pi is not “must use ROS.” Native Linux is
 Python on the robot (`rosie run`); PlatformIO/`rosie mcu` is MCU-only. Hosts
@@ -147,6 +154,7 @@ never need firmware tooling.
 | QoS / TF / ROS actions | Full stack | Omitted; goals use `goto` + `nav_result` topics |
 | Bags | Mature `rosbag2` | Fleet JSONL `.rosiebag` (+ gzip, MCAP export) |
 | Teaching / research bring-up | Hours–days for a clean install | Shared AP + `rosie router` + teleop in minutes |
+| Bus auth | SROS2 / DDS security (heavy) | Open by default; `--secure` for usrpwd + allowlist ([Security](fleet/security.md)) |
 
 ## What we keep from ROS 2
 
@@ -190,7 +198,7 @@ schemas, native mobile-base stack** (MCU DiffDriveStack / Linux `rosie run` +
 drivers), **`robot.yaml` / `agent.yaml`**, **bridge agent**, and the **host
 CLI**. Robots supply identity and config (`robot.yaml` or `agent.yaml`), a thin
 native entrypoint (firmware `main.cpp` or nothing beyond `rosie run` / `rosie
-agent`), and only exotic hardware not in the [driver inventory](drivers.md).
+agent`), and only exotic hardware not in the [driver inventory](robots/drivers.md).
 
 ## When ROS 2 is still the better fit (on the robot)
 
@@ -204,8 +212,9 @@ coherent stack on MCU or DIY Linux matter more than the full ROS ecosystem.
 
 These are not exclusive: mixed fleets are the design point. Rosie always owns
 fleet coordination and laptop tooling; the robot may be native or bridged.
-Details: [Robots: native vs bridge](bridges.md).
+Details: [Robots: native vs bridge](robots/bridges.md).
 
-Networking: [Fleet networking](fleet-networking.md). Architecture:
-[Architecture](architecture.md). Mobile base: [Mobile base](mobile-base.md).
-Getting started: [Getting started](getting-started.md).
+Networking: [Fleet networking](fleet/networking.md). Security:
+[Security](fleet/security.md). Architecture: [Architecture](architecture.md).
+Mobile base: [Mobile base](robots/mobile-base.md). Getting started:
+[Getting started](getting-started.md).

@@ -51,19 +51,7 @@ rosie doctor
 
 ## 4. Pick a path
 
-### A. Host only — minimal pub/sub
-
-No robot required. From the Rosie repo root:
-
-```bash
-python examples/minimal-pub-sub/talker.py
-# another terminal
-python examples/minimal-pub-sub/listener.py
-```
-
-Next for host apps: [Writing sessions](writing-sessions.md).
-
-### B. Ground robot — DiffDriveStack
+### A. Ground robot — MCU (`rosie mcu`)
 
 For a planar differential-drive MCU (ESP32). Install with MCU extras if you
 have not already: `pip install -e "python[mcu]"`.
@@ -71,12 +59,13 @@ have not already: `pip install -e "python[mcu]"`.
 ```bash
 mkdir mybot && cd mybot
 rosie mcu init --robot mybot
-# edit robot.yaml — pins, SSID/password, geometry
+# edit robot.yaml — motors.driver / pins, SSID/password, geometry
+# (default motors.driver: tb6612; also l298n, … — see Drivers)
 rosie mcu setup && rosie mcu flash
 rosie drive --config robot.yaml
 ```
 
-`rosie mcu init` writes `robot.yaml` and a thin sketch. The firmware is just:
+`rosie mcu init` writes `robot.yaml` and a thin `DiffDriveStack` sketch:
 
 ```cpp
 #include "generated/robot_config.h"
@@ -103,12 +92,12 @@ rosie drive --config robot.yaml     # REPL: waypoints, teleop, camera, …
 rosie mcu monitor
 ```
 
-How to use the drive REPL: [Mobile base → Host](mobile-base.md#host).
-Full checklist: [BYOR](byor.md). Control / YAML / topics: [Mobile base](mobile-base.md).
-Raw `MobileBase` (custom motors / wiring) is an escape hatch there — not the
-default path.
+How to use the drive REPL: [Mobile base → Host](robots/mobile-base.md#host).
+Full checklist: [BYOR](robots/byor.md). Control / YAML / topics: [Mobile base](robots/mobile-base.md).
+Raw `MobileBase` is an escape hatch for chips not in the MCU inventory / stack —
+not the default path.
 
-### C. Ground robot — Linux native (`rosie run`)
+### B. Ground robot — Linux native (`rosie run`)
 
 For a Pi / Jetson DIY base Rosie drives directly (no ROS). Install
 `pip install -e "python[linux]"` on the robot (or use a BYO Python
@@ -121,8 +110,29 @@ rosie run --config robot.yaml
 # laptop: rosie teleop / viz / fleet list — same as MCU
 ```
 
-Details: [Mobile base → Linux native](mobile-base.md#linux-native-rosie-run).
-ROS robots use `rosie agent` instead: [Bridges](bridges.md).
+Details: [Mobile base → Linux native](robots/mobile-base.md#linux-native-rosie-run).
+
+### C. ROS / commercial robot (`rosie agent`)
+
+Keep the vendor ROS 2 stack on the robot; run **`rosie agent`** beside it so
+the fleet sees the same `cmd_vel` / `pose` / `presence` contract. Laptop stays
+Rosie-only (no ROS).
+
+```bash
+# on the robot (after ROS bring-up so /cmd_vel and /odom exist)
+python3 -m venv --system-site-packages ~/rosie-venv
+source ~/rosie-venv/bin/activate
+pip install rosie-framework
+# source /opt/ros/$ROS_DISTRO/setup.bash
+
+rosie agent init --robot turtle1 --fleet lab --connect tcp/<router-ip>:7447
+# optional: --profile turtlebot4
+rosie agent doctor
+rosie agent run
+```
+
+From the laptop: `rosie teleop --robot turtle1`, `rosie fleet list`, `rosie viz`
+— same tools as native robots. Full detail: [Bridges](robots/bridges.md).
 
 ## 5. Networking
 
@@ -145,11 +155,11 @@ For one or more robots (including heterogeneous types):
 7. Optional spatial view: `rosie viz --fleet <id>` (opens a local browser map
    of poses / trails). Solo SoftAP: `rosie viz --robot <id>`. Offline:
    `rosie viz --bag run.rosiebag` (optional `--start` / `--end` / `--key`
-   filters, same as `rosie bag play`). Details: [Viz](viz.md).
+   filters, same as `rosie bag play`). Details: [Viz](host/viz.md).
 
-Full detail: [Fleet networking](fleet-networking.md). Membership:
-[Fleet management](fleet-management.md). Open vs secure modes:
-[Security](security.md).
+Full detail: [Fleet networking](fleet/networking.md). Membership:
+[Fleet management](fleet/management.md). Open vs secure modes:
+[Security](fleet/security.md).
 
 ### Solo SoftAP fallback (one MCU)
 
@@ -188,34 +198,25 @@ More identity and topic rules: [Conventions](conventions.md).
 | PlatformIO missing | `pip install "rosie-framework[mcu]"` |
 | `snap` / `cam` fails or prints “opencv not installed” | `pip install "rosie-framework[camera]"` (OpenCV for host viewing only) |
 | Publish/subscribe wrong keys | Use relative names under `Session(robot=...)`, or absolute `/...` ([Conventions](conventions.md)) |
-| Firmware JSON publish fails / truncated | Payload exceeds ~384-byte MCU buffer ([Firmware](firmware.md)) |
-| Trying to run two SoftAP cars at once | SoftAP is solo-only — use a [dedicated AP](fleet-networking.md) |
+| Firmware JSON publish fails / truncated | Payload exceeds ~384-byte MCU buffer ([Firmware](robots/firmware.md)) |
+| Trying to run two SoftAP cars at once | SoftAP is solo-only — use a [dedicated AP](fleet/networking.md) |
 
-## Appendix: manual zenohd
-
-If you prefer not to use `rosie setup` / `rosie router`:
-
-```bash
-# download from https://download.eclipse.org/zenoh/zenoh/ or GitHub releases
-zenohd -c tools/zenoh.json5
-```
-
-MCU escape hatch: raw `pio …` from a PlatformIO robot directory. Details:
-[Firmware](firmware.md).
 
 ## Next
 
-- [Mobile base](mobile-base.md) — `robot.yaml`, DiffDriveStack, `rosie drive` / Host REPL
-- [Bring Your Own Robot](byor.md) — full MCU bring-up checklist
-- [Robots: native vs bridge](bridges.md) — `rosie agent` for ROS / commercial robots
-- [Drivers](drivers.md) — inventory (`rosie drivers list`)
-- [Fleet networking](fleet-networking.md) — dedicated AP, SoftAP fallback, discovery
-- [Fleet management](fleet-management.md) — init / add / router day-to-day
-- [Security](security.md) — solo/fleet × open/secure, allowlist, ESP32 limits
-- [Writing sessions](writing-sessions.md)
-- [Viz](viz.md) — `rosie viz` browser map / bag scrub
+- [Mobile base](robots/mobile-base.md) — `robot.yaml`, DiffDriveStack, `rosie drive` / Host REPL
+- [Bring Your Own Robot](robots/byor.md) — full MCU bring-up checklist
+- [Robots: native vs bridge](robots/bridges.md) — `rosie agent` for ROS / commercial robots
+- [Drivers](robots/drivers.md) — inventory (`rosie drivers list`)
+- [Fleet networking](fleet/networking.md) — dedicated AP, SoftAP fallback, discovery
+- [Fleet management](fleet/management.md) — init / add / router day-to-day
+- [Security](fleet/security.md) — solo/fleet × open/secure, allowlist, ESP32 limits
+- [Writing sessions](host/writing-sessions.md)
+- [MobileRobot](host/mobile-robot.md) — host MobileBase client API
+- [Fleet](host/fleet.md) — host fleet discovery / wait / estop API
+- [Viz](host/viz.md) — `rosie viz` browser map / bag scrub
 - [Conventions](conventions.md) — topics, units, robot/fleet identity
 - [Messages](messages.md) — std message catalog
-- [Firmware](firmware.md)
+- [Firmware](robots/firmware.md)
 - [Architecture](architecture.md)
 - [Motivation](motivation.md) — purpose and Rosie vs ROS 2

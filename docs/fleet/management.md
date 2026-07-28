@@ -3,7 +3,7 @@
 Operator guide for **solo vs fleet** bring-up and membership. Security layers,
 threat model, and the four open/secure modes:
 [Security](security.md). Wi‑Fi topology:
-[Fleet networking](fleet-networking.md).
+[Fleet networking](networking.md).
 
 ## Choose your setup
 
@@ -99,8 +99,9 @@ never commit the secret).
 
 ## Related docs
 
+- [Fleet (Python)](../host/fleet.md) — `Fleet` kwargs / methods (wait, topics, estop)
 - [Security](security.md) — four modes, layered model, ESP32 limits
-- [Fleet networking](fleet-networking.md) — dedicated AP vs SoftAP topology
-- [Conventions](conventions.md) — `(fleet, robot)` identity and presence
-- [BYOR](byor.md) — standing up a native robot
-- [Getting started](getting-started.md) — install and first router
+- [Fleet networking](networking.md) — dedicated AP vs SoftAP topology
+- [Conventions](../conventions.md) — `(fleet, robot)` identity and presence
+- [BYOR](../robots/byor.md) — standing up a native robot
+- [Getting started](../getting-started.md) — install and first router

@@ -4,21 +4,21 @@
 
 namespace rosie {
 
-struct TB6612Pins {
-  int pwmA = -1;
-  int ain1 = -1;
-  int ain2 = -1;
-  int pwmB = -1;
-  int bin1 = -1;
-  int bin2 = -1;
+/** Two-channel GPIO H-bridge: PWM + IN1/IN2 per motor (TB6612, L298N, …). */
+struct DualHBridgePins {
+  int pwm_a = -1;
+  int in1 = -1;
+  int in2 = -1;
+  int pwm_b = -1;
+  int in3 = -1;
+  int in4 = -1;
   int pwm_ch_a = 4;
   int pwm_ch_b = 5;
 };
 
-/** Two-channel TB6612FNG H-bridge (left / right). */
-class TB6612 : public MotorDriver {
+class DualHBridge : public MotorDriver {
  public:
-  TB6612(const TB6612Pins& pins, const PwmShaping& pwm = {});
+  DualHBridge(const DualHBridgePins& pins, const PwmShaping& pwm = {});
 
   void begin() override;
   void stop() override;
@@ -31,7 +31,7 @@ class TB6612 : public MotorDriver {
   void setMotor_(int pwm_pin, int in1, int in2, float pwm_cmd);
   float shapePwm_(float cmd) const;
 
-  TB6612Pins pins_;
+  DualHBridgePins pins_;
   PwmShaping pwm_;
 };
 

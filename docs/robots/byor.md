@@ -5,10 +5,10 @@ directly (MCU firmware or Linux `rosie run`). For a **commercial / ROS robot**
 you'd rather not rewrite (e.g. TurtleBot), keep its stack and run **`rosie
 agent`** on the robot: [Robots: native vs bridge](bridges.md).
 
-For shared names and units, see [Conventions](conventions.md). For networking,
-see [Fleet networking](fleet-networking.md). For membership,
-see [Fleet management](fleet-management.md). For open vs secure buses,
-see [Security](security.md). For the batteries-included ground
+For shared names and units, see [Conventions](../conventions.md). For networking,
+see [Fleet networking](../fleet/networking.md). For membership,
+see [Fleet management](../fleet/management.md). For open vs secure buses,
+see [Security](../fleet/security.md). For the batteries-included ground
 base path, see [Mobile base](mobile-base.md) and [Drivers](drivers.md).
 
 ## Choose a platform
@@ -48,8 +48,10 @@ Or from an existing folder: `rosie mcu setup` after you add `robot.yaml`.
 
 ## 3. Edit `robot.yaml`
 
-Set pins, SSID/password, geometry, and gains. Inventory of driver ids:
-`rosie drivers list` / [Drivers](drivers.md).
+Set pins, SSID/password, geometry, gains, and driver ids (`motors.driver`,
+optional `encoders.driver` / `imu.chip` / `camera.board`). Inventory:
+`rosie drivers list` / [Drivers](drivers.md). `DiffDriveStack` compiles in the
+selected hardware from that YAML.
 
 You do **not** hand-edit `ROSIE_*` constants — regenerate with
 `rosie mcu gen-config` (also runs on every `rosie mcu build`).
@@ -95,7 +97,7 @@ rosie tune --config robot.yaml      # optional: live velocity PID
 ```
 
 Drive REPL commands, flags, and the Python `MobileRobot` API:
-[Mobile base → Host](mobile-base.md#host).
+[Mobile base → Host](mobile-base.md#host) · [MobileRobot](../host/mobile-robot.md).
 
 ## 6. Bring-up order
 
@@ -117,9 +119,11 @@ Drive REPL commands, flags, and the Python `MobileRobot` API:
 
 ## 7. Escape hatch (MCU)
 
-Chip not in the inventory? Implement `MotorDriver` (or sensor helpers) in your
-project and construct `MobileBase` yourself (skip `DiffDriveStack`). Document
-custom `cmd` ops in your robot README.
+Chip not in the inventory, or not wired into `DiffDriveStack` yet? Implement
+`MotorDriver` (or sensor helpers) in your project and construct `MobileBase`
+yourself (skip `DiffDriveStack`). Document custom `cmd` ops in your robot
+README. To use a new chip *with* the stack, contribute the driver + registry +
+gen-config + stack branch — [Contributing](../../CONTRIBUTING.md) / [Drivers](drivers.md).
 
 ## 8. What goes in the robot README
 

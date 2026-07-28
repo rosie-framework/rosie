@@ -21,12 +21,12 @@ uses another stack (e.g. ROS2) behind a thin **bridge**.
 3. **One fleet across backends** — MCU (ESP32 firmware), Linux robots (Pi /
    Jetson), and host laptops (macOS, Linux, Windows). Robots join **natively**
    (`robot.yaml` + firmware or `rosie run`) or via a **bridge** (`rosie agent`
-   in front of ROS 2 / another backend). Membership and tooling span those
-   paths; Rosie does not require rewriting every robot.
+   in front of ROS 2 / another backend). Either way, a robot is just an id
+   under `{fleet}/{robot}/…` — same laptop tools for a heterogeneous team.
+   Membership spans those paths; Rosie does not require rewriting every robot.
+   Native vs bridge: [docs/robots/bridges.md](docs/robots/bridges.md).
 
-Either way, a robot is just an id under `{fleet}/{robot}/…`. Same laptop tools
-drive a heterogeneous team. Native vs bridge decision:
-[docs/bridges.md](docs/bridges.md). Deeper “why Rosie”:
+Deeper “why Rosie”:
 [docs/motivation.md](docs/motivation.md).
 
 ## Install
@@ -52,7 +52,7 @@ Details: [docs/getting-started.md](docs/getting-started.md). Notices: [NOTICE](N
 | `rosie` **CLI** | Bus (`router`, `doctor`), robots (`teleop`, `drive`, `tune`, `run`), fleets, topics, bags, ROS bridge (`agent`), MCU flash |
 | `robot.yaml` | Native robots: identity, network, pins, geometry, gains — MCU codegen **and** Linux `rosie run` |
 | `agent.yaml` | Bridged robots: identity + bus + ROS topic map (`rosie agent`) |
-| **Python** `Session` **/** `MobileRobot` | Host apps and scripts on the same bus |
+| **Python** `Session` **/** `MobileRobot` **/** `Fleet` | Host apps and scripts on the same bus |
 | **Firmware library** | Linked into MCU projects by `rosie mcu setup` |
 
 ### Paths for a robot
@@ -86,8 +86,8 @@ rosie agent run
 # laptop: same teleop / viz / fleet tools — no ROS on the laptop
 ```
 
-See [Mobile base](docs/mobile-base.md), [BYOR](docs/byor.md), and
-[Bridges](docs/bridges.md).
+See [Mobile base](docs/robots/mobile-base.md), [BYOR](docs/robots/byor.md), and
+[Bridges](docs/robots/bridges.md).
 
 ### Host only
 
@@ -113,27 +113,42 @@ python examples/minimal-pub-sub/listener.py
 | `rosie mcu build` / `flash` / `monitor` | Compile, flash, and serial-monitor an MCU project |
 | `rosie drivers list` | Print supported / planned driver and base inventory |
 
-Fleet networking (dedicated AP vs SoftAP): [docs/fleet-networking.md](docs/fleet-networking.md).
-Fleet management (init / add / router): [docs/fleet-management.md](docs/fleet-management.md).
-Security (solo/fleet × open/secure): [docs/security.md](docs/security.md).
+Fleet networking (dedicated AP vs SoftAP): [docs/fleet/networking.md](docs/fleet/networking.md).
+Fleet management (init / add / router): [docs/fleet/management.md](docs/fleet/management.md).
+Security (solo/fleet × open/secure): [docs/fleet/security.md](docs/fleet/security.md).
 
 ## Docs
 
+Index: [docs/README.md](docs/README.md).
+
+**Start here**
+
 - [Motivation](docs/motivation.md) — goals, Rosie vs ROS 2, native vs bridge
 - [Getting started](docs/getting-started.md)
-- [Robots: native vs bridge](docs/bridges.md) — when to use `rosie run` vs `rosie agent`
-- [Bring Your Own Robot](docs/byor.md) — stand up a new native robot
-- [Mobile base](docs/mobile-base.md) — `robot.yaml`, DiffDriveStack, Linux `rosie run`
-- [Drivers](docs/drivers.md) — inventory (`rosie drivers list`)
 - [Architecture](docs/architecture.md)
-- [Fleet networking](docs/fleet-networking.md)
-- [Fleet management](docs/fleet-management.md) — membership, SoftAP vs shared Wi‑Fi vs fleet
-- [Security](docs/security.md) — four modes (open/secure), allowlist, ESP32 limits
 - [Conventions](docs/conventions.md) — topics, robot/fleet identity, fleet robot contract
 - [Messages & codegen](docs/messages.md)
-- [Writing sessions (Python)](docs/writing-sessions.md)
-- [Viz](docs/viz.md) — browser 2D fleet / bag viewer
-- [Firmware](docs/firmware.md) — library details / advanced escape hatches
+
+**Robots**
+
+- [Robots: native vs bridge](docs/robots/bridges.md) — when to use `rosie run` vs `rosie agent`
+- [Bring Your Own Robot](docs/robots/byor.md) — stand up a new native robot
+- [Mobile base](docs/robots/mobile-base.md) — `robot.yaml`, DiffDriveStack, Linux `rosie run`
+- [Drivers](docs/robots/drivers.md) — inventory (`rosie drivers list`)
+- [Firmware](docs/robots/firmware.md) — library details / advanced escape hatches
+
+**Host**
+
+- [Writing sessions (Python)](docs/host/writing-sessions.md)
+- [MobileRobot](docs/host/mobile-robot.md) — host MobileBase client API
+- [Fleet](docs/host/fleet.md) — host fleet discovery / wait / estop API
+- [Viz](docs/host/viz.md) — browser 2D fleet / bag viewer
+
+**Fleet**
+
+- [Networking](docs/fleet/networking.md) — dedicated AP vs SoftAP
+- [Management](docs/fleet/management.md) — membership, SoftAP vs shared Wi‑Fi vs fleet
+- [Security](docs/fleet/security.md) — four modes (open/secure), allowlist, ESP32 limits
 
 ## Layout
 
@@ -144,6 +159,9 @@ rosie/
   interfaces/      # std_msgs.yaml + gen.py
   assets/          # brand mark (Rosie the Riveter–inspired icon)
   docs/
+    robots/        # byor, bridges, mobile-base, drivers, firmware
+    host/          # writing-sessions, mobile-robot, fleet, viz
+    fleet/         # networking, management, security
   examples/        # minimal talker/listener + sample fleet manifest
   tools/           # sample zenohd config (also packaged in the wheel)
 ```

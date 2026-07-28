@@ -4,6 +4,55 @@ Opt-in firmware + host layer for **planar ground robots** (differential drive in
 v1). Transport remains `rosie::Session` / Python `Session`; `MobileBase` /
 `DiffDriveStack` add drivers, kinematics, deadman, goto, and standard topics.
 
+## Layers
+
+Think of it as a stack: you write config + a thin sketch; Rosie fills in the
+middle; hardware sits at the bottom.
+
+```mermaid
+flowchart TB
+  yaml["robot.yaml → robot_config.h"]
+  stack["DiffDriveStack — YAML wiring"]
+  mb["MobileBase — topics, modes, deadman, goto"]
+  kin["BaseKinematics — Twist ↔ channels + odom"]
+  vel["VelocityController — optional wheel PID"]
+  motors["MotorDriver — channels → PWM"]
+
+  yaml --> stack
+  stack --> mb
+  mb --> kin
+  kin --> vel
+  vel --> motors
+```
+
+- **`robot.yaml` → `robot_config.h`** — declarative identity, network, pins,
+  geometry, gains, and feature flags. What you edit; codegen feeds the stack.
+- **`DiffDriveStack`** — YAML-driven **default assembly** for diff-drive MCUs:
+  constructs the selected motors, optional encoders/IMU/camera, kinematics,
+  velocity PID, Wi‑Fi / Zenoh / `MobileBase`, and SerialShell from `robot.yaml`.
+  Not the behavior layer — skip it only for chips the inventory/stack does not
+  cover yet. Linux `rosie run` skips it entirely and mirrors `MobileBase` from
+  YAML. Beside the control path below, the stack also wires encoder/IMU hooks
+  and optional camera publish.
+- **`MobileBase`** — shared **behavior** over Session: topics, IDLE/MANUAL/AUTO,
+  teleop deadman, goto, and `cmd`. Holds refs to kinematics, an optional
+  velocity controller, and the motor driver; used by both the MCU stack and
+  Linux `rosie run`. Teleop and goto both produce a body Twist `(v, w)` and
+  currently share one actuation path through the layers below; other modes may
+  grow their own entry points later.
+  - **`BaseKinematics`** — steering geometry: Twist ↔ feedforward channels +
+    wheel velocities + odometry (DiffDrive today; mecanum / ackermann later).
+  - **`VelocityController`** — optional closed-loop correction between
+    kinematics outputs and motors. Default PID with gains `0,0,0` ≈ open-loop
+    passthrough; if no controller is attached, kinematics channels go straight
+    to the motor driver.
+  - **`MotorDriver`** — channels in `[-1, 1]` → PWM. MCU inventory: TB6612,
+    L298N (see [Drivers](drivers.md)); BYO chips use raw `MobileBase`.
+
+Steering variants plug in as new kinematics; `MobileBase` stays shared. Other
+velocity algorithms implement `VelocityController` and select via
+`control.velocity.type` (v1: `pid` only).
+
 ## What you write
 
 1. **`robot.yaml`** — identity, network, pins, geometry, gains.
@@ -45,29 +94,40 @@ void loop() {
 ```
 
 `rosie mcu build` / `gen-config` regenerates `robot_config.h` from `robot.yaml`.
-`DiffDriveStack` wires TB6612, encoders, DiffDrive kinematics, optional IMU/camera,
-Wi‑Fi, Zenoh, SerialShell, MobileBase, and a `PidVelocityController` (default
-gains `0,0,0` = open-loop feedforward).
+`DiffDriveStack` wires the **selected** motors (`motors.driver`), optional
+encoders / IMU / camera, DiffDrive kinematics, Wi‑Fi, Zenoh, SerialShell,
+`MobileBase`, and a `PidVelocityController` (default gains `0,0,0` = open-loop
+feedforward). See [Drivers](drivers.md) for supported ids and pin keys
+(e.g. TB6612 `pwmA`/`ain1`… vs L298N `ena`/`in1`…).
 
-Accessors: `stack.base()`, `stack.motors()`, `stack.encoders()`, `stack.imu()`,
-`stack.camera()`, `stack.velocityController()`.
+Accessors: `stack.base()`, `stack.motors()` (`MotorDriver&`), `stack.kinematics()`,
+`stack.velocityController()`; plus `stack.encoders()` / `stack.imu()` /
+`stack.camera()` when those sections are present in YAML.
 
-## Cascaded control
+## Alternative: raw `MobileBase`
 
-Both teleop (`cmd_vel`) and goto share one actuation path:
+If the chip is not in the MCU inventory (or not wired into `DiffDriveStack`
+yet), implement `MotorDriver` / kinematics yourself and pass them into
+`MobileBase`. Optionally attach a `VelocityController`. Keep using relative
+topics so `rosie teleop` / `rosie drive` still work.
 
-1. **Outer loop** — host Twist, or onboard goto (pose error → Twist in m/s, rad/s).
-2. **Inner loop** — `driveTwist_`: kinematics feedforward channels + optional
-   per-wheel velocity PID → `MotorDriver`.
+## Configuring control
+
+Twist sources and the shared actuation path under `MobileBase` are described in
+[Layers](#layers). Configure gains in YAML; tune live without reflashing.
+
+Host `cmd_vel` (MANUAL) or onboard goto (AUTO) produces a body Twist `(v, w)`.
+That Twist goes through `BaseKinematics`, then an optional `VelocityController`,
+then `MotorDriver`. Teleop and goto share that path today.
 
 ```yaml
 control:
-  goto:                    # outer: pose → Twist
+  goto:                    # pose → Twist
     kp_linear: 0.8
     kp_angular: 1.5
     v_max: 0.35
     w_max: 1.5
-  velocity:                # inner: omit or kp=ki=kd=0 for open-loop
+  velocity:                # omit or kp=ki=kd=0 for open-loop
     type: pid
     kp: 0.0
     ki: 0.0
@@ -92,51 +152,6 @@ Cmd ops: `set_gains` `{kp,ki,kd,i_clamp}` (partial OK), `get_gains`. Telemetry o
 
 Custom inner loop: implement `VelocityController` and
 `base.setVelocityController(&ctrl)` (or inject via BYO MobileBase).
-
-## Escape hatch: raw `MobileBase`
-
-If you need a non-TB6612 driver or custom sensor wiring, construct
-`MotorDriver` / kinematics yourself and pass them into `MobileBase`. Optionally
-attach a `VelocityController`. Keep using relative topics so `rosie teleop` /
-`rosie drive` still work.
-
-## Layers
-
-Think of it as a stack: you write config + a thin sketch; Rosie fills in the
-middle; hardware sits at the bottom.
-
-```mermaid
-flowchart TB
-  yaml["robot.yaml → robot_config.h"]
-  stack["DiffDriveStack — default wiring"]
-  mb["MobileBase — topics, modes, deadman"]
-  outer["Outer: cmd_vel / goto → Twist"]
-  drive["driveTwist_"]
-  kin["BaseKinematics — Twist ↔ channels + odom"]
-  vel["VelocityController — optional wheel PID"]
-  motors["MotorDriver — channels → PWM"]
-
-  yaml --> stack
-  stack --> mb
-  mb --> outer
-  outer --> drive
-  drive --> kin
-  drive --> vel
-  drive --> motors
-```
-
-- **`robot.yaml` → `robot_config.h`** — pins, gains, network, feature flags (what you edit)
-- **`DiffDriveStack`** — default glue: constructs the pieces below from that config
-  - **`MobileBase`** — topics, IDLE/MANUAL/AUTO, deadman, goto
-    - **Outer loop** — host `cmd_vel` or onboard goto → body Twist `(v, w)`
-    - **`driveTwist_`** (shared by teleop and goto)
-      - **`BaseKinematics`** — Twist ↔ feedforward channels + wheel velocities + odometry
-      - **`VelocityController`** — optional closed-loop correction on wheel velocity (default: PID with gains `0,0,0` = open-loop)
-      - **`MotorDriver`** — channels in `[-1, 1]` → PWM
-
-Steering variants (mecanum / ackermann later) plug in as new kinematics;
-`MobileBase` stays shared. Other velocity algorithms implement `VelocityController`
-and select via `control.velocity.type` (v1: `pid` only).
 
 ## `robot.yaml`
 
@@ -290,13 +305,12 @@ with MobileRobot(config_path="robot.yaml") as bot:
     bot.wait_for_pose()
     bot.set_gains(kp=0.3)
     bot.drive_to(1.0, 0.0)
-    # bot.goto(1.0, 1.0)           # fire-and-forget
-    # bot.drive_route([(1.0, 0.0), (1.0, 1.0)])  # optional helper
-    # bot.teleop()                 # optional nested teleop
 ```
 
-More Session / MobileRobot patterns: [Writing sessions](writing-sessions.md).
+Constructor kwargs, identity without `robot.yaml`, and the full method list:
+[MobileRobot](../host/mobile-robot.md). Raw `Session`:
+[Writing sessions](../host/writing-sessions.md).
 
 ## Related
 
-- [BYOR](byor.md) · [Firmware](firmware.md) · [Drivers](drivers.md) · [Bridges](bridges.md) · [Conventions](conventions.md) · [Writing sessions](writing-sessions.md)
+- [BYOR](byor.md) · [Firmware](firmware.md) · [Drivers](drivers.md) · [Bridges](bridges.md) · [Conventions](../conventions.md) · [MobileRobot](../host/mobile-robot.md) · [Writing sessions](../host/writing-sessions.md)

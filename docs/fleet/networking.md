@@ -3,7 +3,7 @@
 First-class multi-robot support in Rosie assumes a **shared Wi‑Fi network** and a
 **brokered Zenoh bus** (`rosie router` / zenohd). Every robot and host is a Zenoh
 **client** that connects to that router. Discovery is not flat multicast DDS —
-see also [Motivation](motivation.md) (Rosie vs ROS 2).
+see also [Motivation](../motivation.md) (Rosie vs ROS 2).
 
 ## Recommended topology (fleets)
 
@@ -110,7 +110,7 @@ Selectors are relative to the fleet unless absolute: `*/pose`, `car1/cmd_vel`,
 ## Team bring-up
 
 Compose the team with a **fleet manifest** (JSON, or YAML if PyYAML is
-installed). Example: [`examples/fleet-manifest.json`](../examples/fleet-manifest.json).
+installed). Example: [`examples/fleet-manifest.json`](../../examples/fleet-manifest.json).
 
 ```json
 {
@@ -131,15 +131,15 @@ rosie fleet wait --fleet lab --expect car1,car2 --status ready
 
 `Fleet.wait(...)` / `load_manifest(...)` / `resolve_manifest(...)` are the Python
 APIs. Prefer `rosie fleet init` + `~/.rosie/fleets/<id>/` for day-to-day fleets
-([Fleet management](fleet-management.md)). Manifest `defaults` / per-robot
+([Fleet management](management.md)). Manifest `defaults` / per-robot
 `params` are for application code to read — Rosie does not push a remote
 parameter server. MCU identity stays flash/env-fixed.
 
 ## Related docs
 
-- [Fleet management](fleet-management.md) — init / add / router day-to-day
+- [Fleet management](management.md) — init / add / router day-to-day
 - [Security](security.md) — open vs secure modes, allowlist, ESP32 limits
-- [Architecture](architecture.md) — diagrams and SoftAP fallback notes
-- [Conventions](conventions.md) — robot / fleet topic paths
-- [BYOR](byor.md) — standing up a new robot
-- [Getting started](getting-started.md) — host install and router
+- [Architecture](../architecture.md) — diagrams and SoftAP fallback notes
+- [Conventions](../conventions.md) — robot / fleet topic paths
+- [BYOR](../robots/byor.md) — standing up a new robot
+- [Getting started](../getting-started.md) — host install and router

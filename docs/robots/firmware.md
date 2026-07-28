@@ -4,7 +4,7 @@ Rosie firmware is a **PlatformIO / Arduino library** aimed at ESP32 today, with
 the same tooling path available for other PlatformIO MCUs later (RP2040, STM32,
 …). SoftAP Wi‑Fi helper code is ESP32-specific and **optional** (solo-robot
 fallback). Fleets should join a dedicated AP as Wi‑Fi stations — see
-[Fleet networking](fleet-networking.md).
+[Fleet networking](../fleet/networking.md).
 
 Prefer the Rosie CLI over raw `pio` commands. MCU tooling lives under
 ``rosie mcu …`` — use that for ESP32 (and other PlatformIO boards). Raspberry
@@ -64,19 +64,21 @@ Prefer [Mobile base](mobile-base.md):
    `<rosie/diff_drive_stack.h>` → `DiffDriveStack::begin()` / `loop()`.
 3. `rosie mcu build` regenerates config and compiles.
 
-You should not wire `ROSIE_*` macros by hand — `DiffDriveStack` consumes them.
-Optional onboard velocity PID: `control.velocity` in YAML (default 0,0,0 =
-open-loop); tune live with `rosie tune`. Driver inventory: [Drivers](drivers.md)
-/ `rosie drivers list`.
+You should not wire `ROSIE_*` macros by hand — `DiffDriveStack` consumes the
+driver and pin macros emitted from `robot.yaml` (`motors.driver`, encoders,
+IMU, camera). Optional onboard velocity PID: `control.velocity` in YAML
+(default 0,0,0 = open-loop); tune live with `rosie tune`. Supported ids:
+[Drivers](drivers.md) / `rosie drivers list`.
 
 Headers: `rosie/diff_drive_stack.h`, `rosie/mobile_base.h`, `rosie/velocity_controller.h`,
-`rosie/motor_driver.h`, `rosie/diff_drive.h`, `rosie/drivers/*.h`, `rosie/wifi_station.h`,
+`rosie/motor_driver.h`, `rosie/diff_drive.h`,
+`rosie/drivers/{motors,encoders,imu,camera}/*.h`, `rosie/wifi_station.h`,
 `rosie/serial_shell.h`.
 
 ## SoftAP / station + Session (advanced)
 
 For a **single** robot with no travel router, use SoftAP. For fleets, join a
-dedicated AP as a station — [Fleet networking](fleet-networking.md).
+dedicated AP as a station — [Fleet networking](../fleet/networking.md).
 
 ```cpp
 #include <rosie/wifi_softap.h>   // or wifi_station.h
@@ -124,7 +126,7 @@ void loop() {
 Use **relative** names (`"pose"`) or absolute (`"/global/estop"`). Same rules as
 Python. Application code should not include `<zenoh-pico.h>` directly.
 
-Typed messages (after codegen): `#include <rosie/std_msgs.h>` → `rosie::msg::Twist`, etc. See [Messages](messages.md).
+Typed messages (after codegen): `#include <rosie/std_msgs.h>` → `rosie::msg::Twist`, etc. See [Messages](../messages.md).
 
 ## API surface
 

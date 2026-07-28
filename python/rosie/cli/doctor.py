@@ -127,7 +127,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print(
             f"[--] SoftAP-like address — local IPv4: {', '.join(lan) or 'none'} "
             "(solo SoftAP often uses 192.168.4.2; fleets use a dedicated AP — "
-            "see docs/fleet-networking.md; secrets/allowlist — docs/fleet-management.md)"
+            "see docs/fleet/networking.md; secrets/allowlist — docs/fleet/management.md)"
         )
 
     ports = _list_serial_ports()

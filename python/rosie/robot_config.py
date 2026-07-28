@@ -81,7 +81,7 @@ def _resolve_id(raw: str, entries: list[DriverEntry], category: str | None = Non
     raise ValueError(
         f"unknown id {raw!r}"
         + (f" for category {category}" if category else "")
-        + f". See `rosie drivers list` or docs/drivers.md."
+        + f". See `rosie drivers list` or docs/robots/drivers.md."
     )
 
 
@@ -222,15 +222,32 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
         _require_supported(entries, drv, "motors", platform=platform)
         if platform == "linux" and drv == "python" and not motors.get("class"):
             raise ValueError("motors.driver=python requires motors.class")
+        if platform == "mcu" and drv == "l298n":
+            pins = motors.get("pins") or {}
+            for key in ("ena", "in1", "in2", "enb", "in3", "in4"):
+                if key not in pins:
+                    raise ValueError(
+                        f"robot.yaml: motors.driver=l298n requires motors.pins.{key}"
+                    )
+        if platform == "mcu" and drv == "tb6612":
+            pins = motors.get("pins") or {}
+            for key in ("pwmA", "ain1", "ain2", "pwmB", "bin1", "bin2"):
+                if key not in pins:
+                    raise ValueError(
+                        f"robot.yaml: motors.driver=tb6612 requires motors.pins.{key}"
+                    )
     elif platform == "linux":
         raise ValueError("robot.yaml: motors section required for platform: linux")
 
     enc = raw.get("encoders")
-    if enc and platform == "linux":
-        edrv = str(enc.get("driver", "gpio_quadrature"))
+    if enc:
+        if platform == "linux":
+            edrv = str(enc.get("driver", "gpio_quadrature"))
+        else:
+            edrv = str(enc.get("driver", "quad_encoder"))
         edrv = _resolve_id(edrv, entries, "encoders")
         _require_supported(entries, edrv, "encoders", platform=platform)
-        if edrv == "python" and not enc.get("class"):
+        if platform == "linux" and edrv == "python" and not enc.get("class"):
             raise ValueError("encoders.driver=python requires encoders.class")
 
     imu = raw.get("imu")
@@ -250,6 +267,13 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
         board = str(cam.get("board", "esp32s3_eye"))
         board = _resolve_id(board, entries, "camera")
         _require_supported(entries, board, "camera", platform=platform)
+        if board == "custom":
+            pins = cam.get("pins")
+            if not isinstance(pins, dict) or not pins:
+                raise ValueError(
+                    "robot.yaml: camera.board=custom requires camera.pins mapping"
+                )
+
 
     control = raw.get("control") or {}
     velocity = control.get("velocity")
@@ -310,9 +334,13 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
     net = r.get("network") or {}
     base = r.get("base") or {}
     motors = r.get("motors") or {}
+    motor_drv = str(motors.get("driver", "tb6612"))
     pins = motors.get("pins") or {}
     pwm = motors.get("pwm") or {}
-    enc = (r.get("encoders") or {}).get("pins") or {}
+    enc_section = r.get("encoders") or {}
+    has_encoders = bool(r.get("encoders"))
+    enc_drv = str(enc_section.get("driver", "quad_encoder")) if has_encoders else ""
+    enc = enc_section.get("pins") or {}
     left = enc.get("left") or [0, 0]
     right = enc.get("right") or [0, 0]
     control = r.get("control") or {}
@@ -320,8 +348,13 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
     goto = control.get("goto") or {}
     velocity = control.get("velocity") or {}
     imu = r.get("imu") or {}
+    has_imu = bool(r.get("imu"))
+    imu_chip = str(imu.get("chip", "mpu6050")) if has_imu else ""
     i2c = imu.get("i2c") or {}
     cam = r.get("camera") or {}
+    has_camera = bool(r.get("camera"))
+    cam_board = str(cam.get("board", "esp32s3_eye")) if has_camera else ""
+    cam_pins = cam.get("pins") or {}
 
     fleet = cfg.fleet
     fleet_line = (
@@ -376,27 +409,68 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
                 "static const char* ROSIE_ZENOH_PASSWORD = nullptr;",
             ]
         )
+
     lines += [
         "",
         f"static const float ROSIE_WHEEL_DIAMETER = {_c_float(base.get('wheel_diameter', 0.068))};",
         f"static const float ROSIE_WHEEL_BASE = {_c_float(base.get('wheel_base', 0.13))};",
         f"static const float ROSIE_TICKS_PER_REV = {_c_float(base.get('ticks_per_rev', 1440))};",
         "",
-        f"static const int ROSIE_PIN_PWMA = {_c_int(pins.get('pwmA'))};",
-        f"static const int ROSIE_PIN_AIN1 = {_c_int(pins.get('ain1'))};",
-        f"static const int ROSIE_PIN_AIN2 = {_c_int(pins.get('ain2'))};",
-        f"static const int ROSIE_PIN_PWMB = {_c_int(pins.get('pwmB'))};",
-        f"static const int ROSIE_PIN_BIN1 = {_c_int(pins.get('bin1'))};",
-        f"static const int ROSIE_PIN_BIN2 = {_c_int(pins.get('bin2'))};",
+        f"static const char* ROSIE_MOTORS_DRIVER = {_c_str(motor_drv)};",
+    ]
+
+    if motor_drv == "l298n":
+        lines += [
+            "#define ROSIE_MOTORS_L298N 1",
+            f"#define ROSIE_MOTORS_DRIVER_ID {_c_str(motor_drv)}",
+            f"static const int ROSIE_PIN_ENA = {_c_int(pins.get('ena'))};",
+            f"static const int ROSIE_PIN_IN1 = {_c_int(pins.get('in1'))};",
+            f"static const int ROSIE_PIN_IN2 = {_c_int(pins.get('in2'))};",
+            f"static const int ROSIE_PIN_ENB = {_c_int(pins.get('enb'))};",
+            f"static const int ROSIE_PIN_IN3 = {_c_int(pins.get('in3'))};",
+            f"static const int ROSIE_PIN_IN4 = {_c_int(pins.get('in4'))};",
+        ]
+    else:
+        # Default / tb6612
+        lines += [
+            "#define ROSIE_MOTORS_TB6612 1",
+            f"#define ROSIE_MOTORS_DRIVER_ID {_c_str(motor_drv)}",
+            f"static const int ROSIE_PIN_PWMA = {_c_int(pins.get('pwmA'))};",
+            f"static const int ROSIE_PIN_AIN1 = {_c_int(pins.get('ain1'))};",
+            f"static const int ROSIE_PIN_AIN2 = {_c_int(pins.get('ain2'))};",
+            f"static const int ROSIE_PIN_PWMB = {_c_int(pins.get('pwmB'))};",
+            f"static const int ROSIE_PIN_BIN1 = {_c_int(pins.get('bin1'))};",
+            f"static const int ROSIE_PIN_BIN2 = {_c_int(pins.get('bin2'))};",
+        ]
+
+    lines += [
         f"static const int ROSIE_PWM_FREQ = {_c_int(pwm.get('freq', 20000))};",
         f"static const int ROSIE_PWM_RES = {_c_int(pwm.get('res', 8))};",
         f"static const float ROSIE_MIN_PWM = {_c_float(pwm.get('min', 55))};",
         f"static const float ROSIE_MAX_PWM = {_c_float(pwm.get('max', 100))};",
         "",
-        f"static const int ROSIE_ENC_LA = {_c_int(left[0] if len(left) > 0 else 0)};",
-        f"static const int ROSIE_ENC_LB = {_c_int(left[1] if len(left) > 1 else 0)};",
-        f"static const int ROSIE_ENC_RA = {_c_int(right[0] if len(right) > 0 else 0)};",
-        f"static const int ROSIE_ENC_RB = {_c_int(right[1] if len(right) > 1 else 0)};",
+        f"#define ROSIE_HAS_ENCODERS {1 if has_encoders else 0}",
+    ]
+    if has_encoders:
+        if enc_drv == "quad_encoder":
+            lines.append("#define ROSIE_ENCODERS_QUAD_ENCODER 1")
+        lines += [
+            f"static const char* ROSIE_ENCODERS_DRIVER = {_c_str(enc_drv)};",
+            f"static const int ROSIE_ENC_LA = {_c_int(left[0] if len(left) > 0 else 0)};",
+            f"static const int ROSIE_ENC_LB = {_c_int(left[1] if len(left) > 1 else 0)};",
+            f"static const int ROSIE_ENC_RA = {_c_int(right[0] if len(right) > 0 else 0)};",
+            f"static const int ROSIE_ENC_RB = {_c_int(right[1] if len(right) > 1 else 0)};",
+        ]
+    else:
+        lines += [
+            "static const char* ROSIE_ENCODERS_DRIVER = nullptr;",
+            "static const int ROSIE_ENC_LA = 0;",
+            "static const int ROSIE_ENC_LB = 0;",
+            "static const int ROSIE_ENC_RA = 0;",
+            "static const int ROSIE_ENC_RB = 0;",
+        ]
+
+    lines += [
         "",
         f"static const unsigned long ROSIE_DT_MS = {_c_int(control.get('dt_ms', 20))}UL;",
         f"static const float ROSIE_TELEOP_KV = {_c_float(teleop.get('kv', 180))};",
@@ -417,19 +491,64 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
         f"static const float ROSIE_VEL_KD = {_c_float(velocity.get('kd', 0.0))};",
         f"static const float ROSIE_VEL_ICLAMP = {_c_float(velocity.get('i_clamp', 0.5))};",
         "",
-        f"static const int ROSIE_IMU_SDA = {_c_int(i2c.get('sda', 1))};",
-        f"static const int ROSIE_IMU_SCL = {_c_int(i2c.get('scl', 2))};",
-        f"static const uint8_t ROSIE_IMU_ADDR = {_c_int(i2c.get('addr', 0x68))};",
-        f"static const int ROSIE_IMU_YAW_AXIS = {_c_int(imu.get('yaw_axis', 2))};",
-        f"static const float ROSIE_IMU_YAW_SIGN = {_c_float(imu.get('yaw_sign', -1))};",
+        f"#define ROSIE_HAS_IMU {1 if has_imu else 0}",
+    ]
+    if has_imu:
+        if imu_chip == "mpu6050":
+            lines.append("#define ROSIE_IMU_MPU6050 1")
+        lines += [
+            f"static const char* ROSIE_IMU_CHIP = {_c_str(imu_chip)};",
+            f"static const int ROSIE_IMU_SDA = {_c_int(i2c.get('sda', 1))};",
+            f"static const int ROSIE_IMU_SCL = {_c_int(i2c.get('scl', 2))};",
+            f"static const uint8_t ROSIE_IMU_ADDR = {_c_int(i2c.get('addr', 0x68))};",
+            f"static const int ROSIE_IMU_YAW_AXIS = {_c_int(imu.get('yaw_axis', 2))};",
+            f"static const float ROSIE_IMU_YAW_SIGN = {_c_float(imu.get('yaw_sign', -1))};",
+        ]
+    else:
+        lines += [
+            "static const char* ROSIE_IMU_CHIP = nullptr;",
+            "static const int ROSIE_IMU_SDA = 0;",
+            "static const int ROSIE_IMU_SCL = 0;",
+            "static const uint8_t ROSIE_IMU_ADDR = 0;",
+            "static const int ROSIE_IMU_YAW_AXIS = 2;",
+            "static const float ROSIE_IMU_YAW_SIGN = -1.0f;",
+        ]
+
+    lines += [
         "",
+        f"#define ROSIE_HAS_CAMERA {1 if has_camera else 0}",
         f"static const int ROSIE_CAMERA_JPEG_QUALITY = {_c_int(cam.get('jpeg_quality', 18))};",
         f"static const float ROSIE_CAMERA_PUB_HZ = {_c_float(cam.get('pub_hz', 2))};",
         f"static const bool ROSIE_CAMERA_ENABLE_DEFAULT = {'true' if cam.get('enable_default', True) else 'false'};",
-        f"static const bool ROSIE_HAS_CAMERA = {'true' if cam else 'false'};",
-        f"static const bool ROSIE_HAS_IMU = {'true' if imu else 'false'};",
-        "",
     ]
+    if has_camera:
+        lines.append(f"static const char* ROSIE_CAMERA_BOARD = {_c_str(cam_board)};")
+        if cam_board in ("esp32s3_eye", "freenove_esp32s3_cam"):
+            lines.append("#define ROSIE_CAMERA_ESP32S3_EYE 1")
+        elif cam_board == "custom":
+            lines += [
+                "#define ROSIE_CAMERA_CUSTOM 1",
+                f"static const int ROSIE_CAM_PWDN = {_c_int(cam_pins.get('pwdn', -1))};",
+                f"static const int ROSIE_CAM_RESET = {_c_int(cam_pins.get('reset', -1))};",
+                f"static const int ROSIE_CAM_XCLK = {_c_int(cam_pins.get('xclk'))};",
+                f"static const int ROSIE_CAM_SIOD = {_c_int(cam_pins.get('siod'))};",
+                f"static const int ROSIE_CAM_SIOC = {_c_int(cam_pins.get('sioc'))};",
+                f"static const int ROSIE_CAM_Y9 = {_c_int(cam_pins.get('y9'))};",
+                f"static const int ROSIE_CAM_Y8 = {_c_int(cam_pins.get('y8'))};",
+                f"static const int ROSIE_CAM_Y7 = {_c_int(cam_pins.get('y7'))};",
+                f"static const int ROSIE_CAM_Y6 = {_c_int(cam_pins.get('y6'))};",
+                f"static const int ROSIE_CAM_Y5 = {_c_int(cam_pins.get('y5'))};",
+                f"static const int ROSIE_CAM_Y4 = {_c_int(cam_pins.get('y4'))};",
+                f"static const int ROSIE_CAM_Y3 = {_c_int(cam_pins.get('y3'))};",
+                f"static const int ROSIE_CAM_Y2 = {_c_int(cam_pins.get('y2'))};",
+                f"static const int ROSIE_CAM_VSYNC = {_c_int(cam_pins.get('vsync'))};",
+                f"static const int ROSIE_CAM_HREF = {_c_int(cam_pins.get('href'))};",
+                f"static const int ROSIE_CAM_PCLK = {_c_int(cam_pins.get('pclk'))};",
+            ]
+    else:
+        lines.append("static const char* ROSIE_CAMERA_BOARD = nullptr;")
+
+    lines.append("")
     return "\n".join(lines)
 
 

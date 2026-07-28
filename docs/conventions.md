@@ -5,7 +5,7 @@ and join a shared network (dedicated AP for fleets; SoftAP only for solo
 fallback); they should follow these topic names and units so laptop tools and
 other robots interoperate.
 
-See also [Messages](messages.md) and [Bring Your Own Robot](byor.md).
+See also [Messages](messages.md) and [Bring Your Own Robot](robots/byor.md).
 
 ## Identity
 
@@ -75,7 +75,7 @@ A robot is a first-class fleet member if it honors this contract — regardless 
 whether it runs Rosie **natively** (MCU firmware / Linux `rosie run`) or via
 a **bridge** (`rosie agent` in front of ROS 2). Laptop tools (`teleop`,
 `viz`, `bag`, `fleet`, `MobileRobot`) judge native and bridged robots the same
-way. See [Bridges](bridges.md) for native-vs-bridge guidance and `rosie agent`.
+way. See [Bridges](robots/bridges.md) for native-vs-bridge guidance and `rosie agent`.
 
 | Level | Topic(s) | Requirement |
 |-------|----------|-------------|
@@ -112,7 +112,7 @@ robot's own topics (e.g. ROS `/cmd_vel`, `/odom`).
 
 There is **no TF tree** and **no `frame_id`**. Pose and goto share whatever frame
 the robot defines (document it in the robot README). Host helpers above `goto`
-are documented in [Mobile base → Navigation helpers](mobile-base.md#navigation-helpers).
+are documented in [Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
 
 ## Binary vs JSON topics
 
@@ -131,19 +131,19 @@ are documented in [Mobile base → Navigation helpers](mobile-base.md#navigation
   | `imu_ok` / `imu_heading` | optional IMU status |
 
   Terminal outcome is **`nav_result`**, not an edge on `navigating`. See
-  [Mobile base → Navigation helpers](mobile-base.md#navigation-helpers).
+  [Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
 
   Robot description for MCU bring-up is **`robot.yaml`** (not URDF) — see
-  [Mobile base](mobile-base.md).
+  [Mobile base](robots/mobile-base.md).
 
 ## Multi-robot / fleet
 
 - Networking: **dedicated AP** + all robots/hosts as Wi‑Fi stations + one
-  `rosie router` — see [Fleet networking](fleet-networking.md). SoftAP is
+  `rosie router` — see [Fleet networking](fleet/networking.md). SoftAP is
   solo-robot fallback only.
-- Membership: [Fleet management](fleet-management.md)
+- Membership: [Fleet management](fleet/management.md)
   (`rosie fleet init` / `add`, `router --fleet`). Open vs secure:
-  [Security](security.md) (`--secure` for usrpwd + allowlist).
+  [Security](fleet/security.md) (`--secure` for usrpwd + allowlist).
 - Publish `presence` (~1 Hz) so hosts can discover live robots.
 - Host: `rosie fleet list|wait|topics`, `rosie topic list|echo`, `rosie bag …`,
   or `from rosie import Fleet, load_manifest`.
@@ -160,7 +160,7 @@ Compared to ROS 2, Rosie does **not** provide:
 - TF / `frame_id`
 - A remote parameter server (params are local + env override only)
 - Services and ROS-style action servers (long-running goals use ordinary
-  topics: `goto` + `nav_result` — see [Mobile base](mobile-base.md#navigation-helpers))
+  topics: `goto` + `nav_result` — see [Mobile base](robots/mobile-base.md#navigation-helpers))
 - Launch-file topic remapping (use absolute names or change robot/fleet;
   team bring-up is `rosie fleet wait` / a fleet manifest + presence wait, not
   N remapped launches)

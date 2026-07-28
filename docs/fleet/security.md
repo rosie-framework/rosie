@@ -1,22 +1,27 @@
 # Security
 
 Layered security model for Rosie buses. Day-to-day fleet commands:
-[Fleet management](fleet-management.md). Wi‑Fi topology:
-[Fleet networking](fleet-networking.md).
+[Fleet management](management.md). Wi‑Fi topology:
+[Fleet networking](networking.md).
 
 ## Threat model
 
-Rosie targets **teaching labs, SoftAP desk demos, and small research fleets** on
-a shared LAN or robot SoftAP — not internet-facing robots.
+**Assets.** Motion and estop commands on the bus, robot identity / presence,
+and the fleet (or solo) shared secret when secure mode is on.
 
-| We assume | We do **not** claim |
-|-----------|---------------------|
-| Operators control who joins the Wi‑Fi / SoftAP | Hard isolation from a determined LAN attacker |
-| Host tools and Linux agents can use Zenoh usrpwd | MCU / zenoh-pico supports usrpwd today |
-| Allowlists keep host tooling honest about membership | Stolen enrolled ids cannot publish |
+**Trust boundary.** Anyone who can join the Wi‑Fi or SoftAP is on the same
+LAN as the bus. Network isolation (SoftAP, dedicated travel AP, VLAN) is the
+first control — see [Fleet networking](networking.md).
 
-Open mode is intentional for ESP32 SoftAP demos. Secure mode is opt-in via
-`--secure` — a leftover secret file must **not** silently enable auth.
+| Mode | Who can use the bus | What host tools treat as “in the fleet” |
+|------|---------------------|-----------------------------------------|
+| **Open** (default) | Anyone on the SSID | Whoever is publishing `presence` |
+| **Secure** (`--secure`) | Peers that know the shared secret (Zenoh usrpwd) | Enrolled ids only (`fleet add` allowlist) |
+
+Open mode is intentional for ESP32 SoftAP demos (zenoh-pico has no usrpwd —
+see [ESP32 guidance](#esp32-guidance)). Secure mode is for Linux / host agents
+on shared networks. Holding the secret still allows publishing under any
+`robot` id until per-key ACLs or app-layer signing land (see Layers below).
 
 ## Layers (present + future)
 
@@ -31,24 +36,6 @@ Open mode is intentional for ESP32 SoftAP demos. Secure mode is opt-in via
 
 ## Four modes
 
-```mermaid
-flowchart LR
-  subgraph modes [Operator selects]
-    SO[solo open]
-    SS[solo secure]
-    FO[fleet open]
-    FS[fleet secure]
-  end
-  SO --> noAuth[no usrpwd]
-  SO --> noList[no allowlist]
-  SS --> auth[usrpwd]
-  SS --> noList
-  FO --> noAuth
-  FO --> noList
-  FS --> auth
-  FS --> list[manifest allowlist]
-```
-
 | Mode | Router | Bus auth | Allowlist on `fleet list` etc. |
 |------|--------|----------|--------------------------------|
 | Solo open | `rosie router` | No | N/A |
@@ -57,8 +44,7 @@ flowchart LR
 | Fleet secure | `rosie router --fleet X --secure` | Yes | Yes (needs prior `fleet add`) |
 
 **Secure** means: bus auth, and for fleets also host-tool allowlisting.
-**Open** (default) has neither. Mode is **CLI-flag driven** — do not rely on
-secret file presence alone.
+**Open** (default) has neither. Mode is **CLI-flag driven**.
 
 ### Commands vs roles
 
@@ -114,7 +100,7 @@ than waiting for pico transport auth.
 
 ## Related docs
 
-- [Fleet management](fleet-management.md) — init / add / router day-to-day
-- [Fleet networking](fleet-networking.md) — SoftAP vs dedicated AP
-- [Conventions](conventions.md) — `(fleet, robot)` identity
-- [Getting started](getting-started.md)
+- [Fleet management](management.md) — init / add / router day-to-day
+- [Fleet networking](networking.md) — SoftAP vs dedicated AP
+- [Conventions](../conventions.md) — `(fleet, robot)` identity
+- [Getting started](../getting-started.md)

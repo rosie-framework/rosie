@@ -245,6 +245,7 @@ motors:
   pwm: {{ freq: 20000, res: 8, min: 55, max: 100 }}
 
 encoders:
+  driver: quad_encoder
   pins: {{ left: [41, 38], right: [39, 40] }}
 
 control:

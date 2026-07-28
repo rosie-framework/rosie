@@ -43,4 +43,4 @@ selected robot appear the same way.
 slider. Fleet id comes from the bag header, `--fleet`, or `ROSIE_FLEET`.
 
 
-See also: [Getting started](getting-started.md) · [Architecture](architecture.md) · [Conventions](conventions.md).
+See also: [Getting started](../getting-started.md) · [Architecture](../architecture.md) · [Conventions](../conventions.md).

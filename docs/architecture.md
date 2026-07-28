@@ -19,7 +19,7 @@
 
 Hosts run the Python package and `rosie router`. MCUs run the Rosie firmware
 library (built/flashed via PlatformIO / `rosie mcu flash`). Networking details:
-[Fleet networking](fleet-networking.md).
+[Fleet networking](fleet/networking.md).
 
 ## Fleet topology (recommended)
 
@@ -34,7 +34,7 @@ travel router) that you control — not home Wi‑Fi and not a robot’s SoftAP.
    to `tcp/127.0.0.1:7447` (override with `ROSIE_CONNECT` if the router is remote).
 
 Discovery is brokered through the router. Application membership uses
-`presence` and `rosie fleet list`. See [Fleet networking](fleet-networking.md).
+`presence` and `rosie fleet list`. See [Fleet networking](fleet/networking.md).
 
 ## Solo SoftAP fallback (one robot)
 
@@ -101,17 +101,17 @@ Raw topics (e.g. JPEG) skip JSON and publish bytes.
 Topic naming and identity: [Conventions](conventions.md). Message catalog: [Messages](messages.md).
 
 Firmware sessions are capped at 8 publishers / 8 subscribers and a small JSON
-publish buffer — see [Firmware](firmware.md).
+publish buffer — see [Firmware](robots/firmware.md).
 
 ## Framework vs robot
 
 | Rosie | Your robot |
 |-------|------------|
 | Session, pub/sub, SoftAP + **wifiStation** | `robot.yaml` pins, ids, credentials, gains |
-| `DiffDriveStack` / `MobileBase`, common drivers | Thin `main.cpp` (or BYO wiring for exotic HW) |
+| `DiffDriveStack` / `MobileBase`, inventory drivers from YAML | Thin `main.cpp`; choose `motors.driver` / sensors in `robot.yaml` (or BYO / raw `MobileBase` for exotic HW) |
 | Cascaded goto + optional velocity PID (`rosie tune`) | Custom `VelocityController` / `cmd` ops |
 | Robot / fleet identity, manifest wait, topic/bag/`drive` CLI | Choosing ids, manifest contents, mission readiness beyond presence |
 
-Standing up a new robot: [BYOR](byor.md). Mobile base: [Mobile base](mobile-base.md).
-Drivers: [Drivers](drivers.md). Networking: [Fleet networking](fleet-networking.md).
+Standing up a new robot: [BYOR](robots/byor.md). Mobile base: [Mobile base](robots/mobile-base.md).
+Drivers: [Drivers](robots/drivers.md). Networking: [Fleet networking](fleet/networking.md).
 Why not ROS 2: [Motivation](motivation.md).

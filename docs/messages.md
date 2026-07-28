@@ -75,7 +75,7 @@ Planar pose estimate. Typical topic: `<robot>/pose`.
 `imu_heading`. Progress is on `pose`; terminal outcome is on `nav_result`.
 `MobileRobot.drive_to` waits for a matching `nav_result`. See
 [Conventions](conventions.md) and
-[Mobile base → Navigation helpers](mobile-base.md#navigation-helpers).
+[Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
 
 ### Log
 
@@ -135,7 +135,7 @@ Tune live with `rosie tune` / `MobileRobot.set_gains`.
 Planar goal point in the same frame as `Pose2D`. Typical topic: `<robot>/goto`.
 Latest goal wins. Hosts should set `goal_id`; if omitted, MobileBase assigns
 one. Completion is published on `nav_result` (not inferred from `pose` alone).
-See [Mobile base → Navigation helpers](mobile-base.md#navigation-helpers).
+See [Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
 
 | Field | Type | Meaning |
 |-------|------|---------|

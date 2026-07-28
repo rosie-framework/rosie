@@ -1,4 +1,4 @@
-#include "rosie/drivers/mpu6050.h"
+#include "rosie/drivers/imu/mpu6050.h"
 #include <Wire.h>
 #include <math.h>
 

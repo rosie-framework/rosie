@@ -30,10 +30,11 @@ drivers:
 
   - id: l298n
     category: motors
-    status: planned
-    description: L298N dual H-bridge
+    status: supported
+    description: L298N dual H-bridge (ENA/IN1/IN2 + ENB/IN3/IN4)
     yaml_key: motors.driver
     platforms: [mcu]
+    deps: []
 
   - id: drv8833
     category: motors
@@ -88,6 +89,14 @@ drivers:
     description: ESP32-S3-EYE DVP pinout (also Freenove ESP32-S3 CAM clones)
     yaml_key: camera.board
     aliases: [freenove_esp32s3_cam]
+    platforms: [mcu]
+    deps: []
+
+  - id: custom
+    category: camera
+    status: supported
+    description: Custom DVP pin map via camera.pins in robot.yaml
+    yaml_key: camera.board
     platforms: [mcu]
     deps: []
 

@@ -8,7 +8,7 @@ Rosie controls a robot in one of two ways:
   **`rosie agent`** translates between that stack and Rosie topics.
 
 Both look identical to the fleet: every robot is just an id under
-`{fleet}/{robot}/…` honoring the [fleet robot contract](conventions.md#fleet-robot-contract).
+`{fleet}/{robot}/…` honoring the [fleet robot contract](../conventions.md#fleet-robot-contract).
 `rosie teleop`, `rosie viz`, `rosie bag`, `rosie fleet`, and `MobileRobot` do not
 care which path a given robot uses. **A fleet can mix both freely.**
 
@@ -61,7 +61,7 @@ introspection**. Interop at the edge — same philosophy as `rosie bag export`
 | Rosie tools | Laptop | teleop, viz, bag, fleet — **no ROS** |
 
 You install ROS only on the robot (usually already there from the vendor image).
-The laptop stays Rosie-only. See [Getting started](getting-started.md) for the
+The laptop stays Rosie-only. See [Getting started](../getting-started.md) for the
 host install.
 
 ## `rosie agent` (ROS 2 bridge)
@@ -121,7 +121,7 @@ rosie viz --fleet lab
 
 `goto` ↔ Nav2 and camera bridging are not in v1.
 
-Keep **units and frames** consistent with [Conventions](conventions.md#units-and-frames):
+Keep **units and frames** consistent with [Conventions](../conventions.md#units-and-frames):
 `pose` in meters, yaw in radians.
 
 ## Config: which file?
@@ -150,8 +150,8 @@ BYO motors: `motors.driver: python` + `motors.class: mypkg:MyMotorDriver`.
 
 ## See also
 
-- [Conventions → Fleet robot contract](conventions.md#fleet-robot-contract)
-- [Fleet networking](fleet-networking.md)
+- [Conventions → Fleet robot contract](../conventions.md#fleet-robot-contract)
+- [Fleet networking](../fleet/networking.md)
 - [Bring Your Own Robot](byor.md) — native MCU / Linux bring-up
 - [Mobile base](mobile-base.md) — `robot.yaml`, MCU stack, `rosie run`
-- [Motivation](motivation.md) — Rosie vs ROS 2
+- [Motivation](../motivation.md) — Rosie vs ROS 2

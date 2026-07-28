@@ -32,7 +32,7 @@ class MobileRobot:
     Sibling capability clients (e.g. an arm helper) would wrap ``Session`` the
     same way — there is no shared robot superclass.
 
-    Navigation (topics only — see docs/mobile-base.md):
+    Navigation (topics only — see docs/robots/mobile-base.md):
       ``goto`` — publish a planar goal with ``goal_id`` (fire-and-forget)
       ``pose`` — progress (``navigating``, ``dist``, ``goal_id``)
       ``nav_result`` — terminal outcome (``succeeded`` / ``canceled`` / ``aborted``)

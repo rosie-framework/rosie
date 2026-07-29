@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
+from enum import Enum
 from typing import Any
 
 import zenoh
@@ -13,6 +14,49 @@ import zenoh
 from .messages import decode_json, encode_json, stamp_now, with_stamp
 
 _RESERVED_ROBOT = "_fleet"
+
+
+class Qos(Enum):
+    """Delivery class for publications (see docs/conventions.md).
+
+    Host uses BLOCK for COMMAND/CRITICAL so one-shots are not dropped under
+    congestion. MCU publishers use DROP + high priority instead (see firmware).
+    """
+
+    STREAM = "stream"
+    COMMAND = "command"
+    CRITICAL = "critical"
+    BULK = "bulk"
+
+
+# Host-side put kwargs. COMMAND/CRITICAL block; STREAM/BULK may drop.
+_QOS_KWARGS: dict[Qos, dict[str, Any]] = {
+    Qos.STREAM: {
+        "congestion_control": zenoh.CongestionControl.DROP,
+        "priority": zenoh.Priority.DATA,
+        "express": False,
+    },
+    Qos.COMMAND: {
+        "congestion_control": zenoh.CongestionControl.BLOCK,
+        "priority": zenoh.Priority.INTERACTIVE_HIGH,
+        "express": True,
+    },
+    Qos.CRITICAL: {
+        "congestion_control": zenoh.CongestionControl.BLOCK,
+        "priority": zenoh.Priority.REAL_TIME,
+        "express": True,
+    },
+    Qos.BULK: {
+        "congestion_control": zenoh.CongestionControl.DROP,
+        "priority": zenoh.Priority.DATA_LOW,
+        "express": False,
+    },
+}
+
+
+def qos_put_kwargs(qos: Qos = Qos.STREAM) -> dict[str, Any]:
+    """Resolved ``Session.put`` kwargs for a delivery class (for tests / raw puts)."""
+    return dict(_QOS_KWARGS[qos])
 
 # Host sessions default to the local router. MCU / remote robots still need an
 # explicit LAN locator in robot.yaml (or ROSIE_CONNECT when the host is remote).
@@ -193,30 +237,45 @@ class Session:
 
     # --- publish / subscribe ----------------------------------------
 
-    def publish(self, key: str, payload: bytes | dict[str, Any]) -> None:
+    def publish(
+        self,
+        key: str,
+        payload: bytes | dict[str, Any],
+        *,
+        qos: Qos = Qos.STREAM,
+    ) -> None:
         """Publish raw bytes, or a dict (JSON with auto stamp if missing).
 
         ``key`` is a relative or absolute topic name (see ``resolve_name``).
+        ``qos`` selects delivery class (default STREAM).
         """
         key = self.resolve_name(key)
         if isinstance(payload, dict):
             payload = encode_json(with_stamp(payload))
-        self.session.put(key, payload)
+        self.session.put(key, payload, **qos_put_kwargs(qos))
 
-    def publish_msg(self, key: str, msg: Any) -> None:
+    def publish_msg(
+        self, key: str, msg: Any, *, qos: Qos = Qos.STREAM
+    ) -> None:
         """Publish a generated std_msgs dataclass (sets stamp when missing)."""
         key = self.resolve_name(key)
         if hasattr(msg, "stamp") and not msg.stamp:
             msg.stamp = stamp_now()
         raw = msg.to_bytes() if hasattr(msg, "to_bytes") else encode_json(msg)
-        self.session.put(key, raw)
+        self.session.put(key, raw, **qos_put_kwargs(qos))
 
-    def publish_fleet(self, key: str, payload: bytes | dict[str, Any]) -> None:
+    def publish_fleet(
+        self,
+        key: str,
+        payload: bytes | dict[str, Any],
+        *,
+        qos: Qos = Qos.STREAM,
+    ) -> None:
         """Publish on a fleet-scoped topic (requires ``fleet``)."""
         key = self.resolve_fleet_name(key)
         if isinstance(payload, dict):
             payload = encode_json(with_stamp(payload))
-        self.session.put(key, payload)
+        self.session.put(key, payload, **qos_put_kwargs(qos))
 
     def create_subscription(
         self,

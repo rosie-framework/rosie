@@ -14,7 +14,7 @@ import zenoh
 
 from rosie import topics
 from rosie.messages import decode_json
-from rosie.session import Session
+from rosie.session import Qos, Session
 
 
 def _robot_and_rel(key: str, fleet: str | None) -> tuple[str | None, str]:
@@ -261,6 +261,7 @@ class VizBridge:
                 self._session.publish(
                     topics.CMD,
                     json.dumps({"op": "camera_enable", "value": True}).encode(),
+                    qos=Qos.COMMAND,
                 )
             except Exception:
                 pass
@@ -279,6 +280,7 @@ class VizBridge:
             s.publish(
                 topics.CMD,
                 json.dumps({"op": "camera_enable", "value": True}).encode(),
+                qos=Qos.COMMAND,
             )
         except Exception:
             pass

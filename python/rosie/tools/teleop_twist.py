@@ -11,7 +11,8 @@ Example (robot wrapper)::
 
     with Session(robot="car1", name="teleop") as session:
         run_teleop(session, v_fwd=0.25, v_turn=1.2,
-                   on_stop=lambda: session.publish(topics.CMD, b'{"op":"stop"}'))
+                   on_stop=lambda: session.publish(
+                       topics.CMD, b'{"op":"stop"}', qos=Qos.COMMAND))
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import tty
 from collections.abc import Callable
 
 from .. import topics
-from ..session import Session
+from ..session import Qos, Session
 from ..std_msgs import Twist
 
 

@@ -72,10 +72,20 @@ session.resolve_fleet_name("estop")   # → lab/_fleet/estop
 
 | Method | Use when |
 |--------|----------|
-| `publish_msg(name, msg)` | Typed `std_msgs` objects (`Twist`, `Pose2D`, …) |
-| `publish(name, dict)` | Plain JSON dicts (stamp injected if missing) |
-| `publish(name, bytes)` | Raw payloads (JPEG, etc.) |
-| `publish_fleet(name, …)` | Fleet-wide topics under `{fleet}/_fleet/...` |
+| `publish_msg(name, msg, qos=...)` | Typed `std_msgs` objects (`Twist`, `Pose2D`, …) |
+| `publish(name, dict, qos=...)` | Plain JSON dicts (stamp injected if missing) |
+| `publish(name, bytes, qos=...)` | Raw payloads (JPEG, etc.) |
+| `publish_fleet(name, …, qos=...)` | Fleet-wide topics under `{fleet}/_fleet/...` |
+
+Optional `qos=` selects a delivery class (`Qos.STREAM` default, `Qos.COMMAND`
+for `cmd` / `goto`, `Qos.CRITICAL` for fleet estop, `Qos.BULK` for camera).
+See [Delivery and validity](../conventions.md#delivery-and-validity).
+
+```python
+from rosie import Qos, topics
+
+session.publish(topics.CMD, {"op": "stop"}, qos=Qos.COMMAND)
+```
 
 ## Subscribe helpers
 

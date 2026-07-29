@@ -12,7 +12,7 @@ import zenoh
 
 from .manifest import FleetManifest
 from .messages import decode_json
-from .session import resolve_connect
+from .session import qos_put_kwargs, resolve_connect, Qos
 from .std_msgs import Cmd, LeaderClaim, RobotPresence
 
 
@@ -326,7 +326,8 @@ class Fleet:
         """Broadcast fleet emergency stop on ``{fleet}/_fleet/estop``."""
         key = self.fleet_key("estop")
         msg = Cmd(op="estop")
-        self._session.put(key, msg.to_bytes())
+        # CRITICAL: host blocks so estop is not dropped under congestion.
+        self._session.put(key, msg.to_bytes(), **qos_put_kwargs(Qos.CRITICAL))
 
     def claim_leader(self, robot_id: str, term: int = 1) -> LeaderClaim:
         """Publish a leader claim on ``{fleet}/_fleet/coord/leader``."""

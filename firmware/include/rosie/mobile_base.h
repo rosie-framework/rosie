@@ -64,6 +64,11 @@ struct MobileBaseSensors {
  *
  * Owns cmd_vel / goto / cmd inbox, IDLE/MANUAL/AUTO arbiter, teleop deadman,
  * cascaded goto (pose → Twist) + optional VelocityController, and publishers.
+ *
+ * Inbox callbacks latch motion requests into an internal command state;
+ * under the default multi-threaded Zenoh build they run on the pico read
+ * task. ``tick()`` (via ``spin()`` at ``dt_ms``) applies modes and drives
+ * motors. See docs/robots/mobile-base.md § Control loop timing.
  */
 class MobileBase {
  public:
@@ -139,6 +144,9 @@ class MobileBase {
     bool goto_has_goal_id = false;
     float cmd_v = 0, cmd_w = 0;
     unsigned long last_cmd_vel_ms = 0;
+    unsigned long stop_ms = 0;
+    unsigned long zero_ms = 0;
+    unsigned long goto_ms = 0;
     bool cmd_vel_seen = false;
   };
 

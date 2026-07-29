@@ -24,7 +24,7 @@ from rosie.run.goto import GotoGains, navigate_step
 from rosie.run.kinematics import DiffDriveGeometry, DiffDriveKinematics, DiffDriveTeleop
 from rosie.messages import encode_json
 from rosie.robot_config import RobotConfig
-from rosie.session import Session
+from rosie.session import Qos, Session
 
 
 class DriveMode(str, Enum):
@@ -46,6 +46,7 @@ class MobileBaseRuntime:
         robot: str | None = None,
         fleet: str | None = None,
         connect: str | None = None,
+        open_session: bool = True,
     ) -> None:
         self.cfg = cfg
         self.motors = motors
@@ -95,6 +96,9 @@ class MobileBaseRuntime:
         self._cmd_v = 0.0
         self._cmd_w = 0.0
         self._last_cmd_vel_t = 0.0
+        self._stop_t = 0.0
+        self._zero_t = 0.0
+        self._goto_t = 0.0
         self._cmd_vel_seen = False
         self._stop_req = False
         self._zero_req = False
@@ -116,17 +120,22 @@ class MobileBaseRuntime:
         self._last_gyro = (0.0, 0.0, 0.0)
         self._last_imu_ok = False
 
-        self.session = Session(
-            robot=robot or cfg.robot,
-            fleet=fleet if fleet is not None else cfg.fleet,
-            connect=connect or cfg.connect,
-            name="run",
-            user=cfg.zenoh_user,
-            password=cfg.fleet_secret,
-        )
-        self.session.subscribe_json(topics.CMD_VEL, self._on_cmd_vel)
-        self.session.subscribe_json(topics.GOTO, self._on_goto)
-        self.session.subscribe_json(topics.CMD, self._on_cmd)
+        self.session: Session | None = None
+        if open_session:
+            self.session = Session(
+                robot=robot or cfg.robot,
+                fleet=fleet if fleet is not None else cfg.fleet,
+                connect=connect or cfg.connect,
+                name="run",
+                user=cfg.zenoh_user,
+                password=cfg.fleet_secret,
+            )
+            self.session.subscribe_json(topics.CMD_VEL, self._on_cmd_vel)
+            self.session.subscribe_json(topics.GOTO, self._on_goto)
+            self.session.subscribe_json(topics.CMD, self._on_cmd)
+        else:
+            # Test / offline: no Zenoh session.
+            pass
 
     def _on_cmd_vel(self, msg: dict) -> None:
         with self._lock:
@@ -146,6 +155,7 @@ class MobileBaseRuntime:
                 self._goto_goal_id = int(msg["goal_id"])
             else:
                 self._goto_has_id = False
+            self._goto_t = time.monotonic()
             self._goto_req = True
 
     def _on_cmd(self, msg: dict) -> None:
@@ -153,10 +163,14 @@ class MobileBaseRuntime:
         with self._lock:
             if op == "stop":
                 self._stop_req = True
+                self._stop_t = time.monotonic()
             elif op == "zero":
                 self._zero_req = True
+                self._zero_t = time.monotonic()
 
     def _publish_pose(self) -> None:
+        if self.session is None:
+            return
         p = self.kinematics.pose()
         dx = self._target_x - p.x
         dy = self._target_y - p.y
@@ -174,6 +188,8 @@ class MobileBaseRuntime:
         self.session.publish(topics.POSE, encode_json(doc))
 
     def _publish_presence(self) -> None:
+        if self.session is None:
+            return
         doc: dict[str, Any] = {
             "robot_id": self.session.robot,
             "status": "ready",
@@ -183,7 +199,7 @@ class MobileBaseRuntime:
         self.session.publish(topics.PRESENCE, encode_json(doc))
 
     def _publish_encoders(self) -> None:
-        if not self._last_enc_valid:
+        if self.session is None or not self._last_enc_valid:
             return
         self.session.publish(
             topics.ENCODERS,
@@ -196,6 +212,8 @@ class MobileBaseRuntime:
         )
 
     def _publish_imu(self) -> None:
+        if self.session is None:
+            return
         ax, ay, az = self._last_accel
         gx, gy, gz = self._last_gyro
         self.session.publish(
@@ -214,7 +232,10 @@ class MobileBaseRuntime:
         )
 
     def _publish_nav_result(self, status: str) -> None:
+        if self.session is None:
+            return
         p = self.kinematics.pose()
+        # COMMAND: host uses BLOCK; same class on the wire for nav_result.
         self.session.publish(
             topics.NAV_RESULT,
             encode_json(
@@ -225,10 +246,13 @@ class MobileBaseRuntime:
                     "y": p.y,
                 }
             ),
+            qos=Qos.COMMAND,
         )
 
     def _log(self, level: str, msg: str) -> None:
         print(f"LOG[{level}] {msg}", file=sys.stderr)
+        if self.session is None:
+            return
         try:
             self.session.publish(
                 topics.LOG, encode_json({"level": level, "msg": msg})
@@ -287,6 +311,9 @@ class MobileBaseRuntime:
             cmd_vel_seen = self._cmd_vel_seen
             cmd_v, cmd_w = self._cmd_v, self._cmd_w
             last_cmd_t = self._last_cmd_vel_t
+            stop_t = self._stop_t
+            zero_t = self._zero_t
+            goto_t = self._goto_t
             goto_x, goto_y = self._goto_x, self._goto_y
             goto_has_id = self._goto_has_id
             goto_goal_id = self._goto_goal_id
@@ -314,26 +341,53 @@ class MobileBaseRuntime:
             self._log("info", "Pose zeroed.")
 
         if goto_req:
-            if self._navigating:
-                self._end_nav("canceled")
-            self._target_x = goto_x
-            self._target_y = goto_y
-            if goto_has_id:
-                self._active_goal_id = goto_goal_id
-                if self._active_goal_id >= self._next_goal_id:
-                    self._next_goal_id = self._active_goal_id + 1
+            if goto_t < stop_t or goto_t < zero_t:
+                pass  # superseded by newer stop/zero
+            elif self._navigating and goto_has_id:
+                if goto_goal_id == self._active_goal_id:
+                    pass  # duplicate — keep driving
+                elif goto_goal_id < self._active_goal_id:
+                    self._log(
+                        "warn",
+                        f"Ignoring stale goto goal_id={goto_goal_id} "
+                        f"(active={self._active_goal_id})",
+                    )
+                else:
+                    self._end_nav("canceled")
+                    self._target_x = goto_x
+                    self._target_y = goto_y
+                    self._active_goal_id = goto_goal_id
+                    if self._active_goal_id >= self._next_goal_id:
+                        self._next_goal_id = self._active_goal_id + 1
+                    self._navigating = True
+                    self._mode = DriveMode.AUTO
+                    self._log(
+                        "info",
+                        f"New target: ({goto_x:.3f}, {goto_y:.3f}) m "
+                        f"goal_id={self._active_goal_id}",
+                    )
             else:
-                self._active_goal_id = self._next_goal_id
-                self._next_goal_id += 1
-            self._navigating = True
-            self._mode = DriveMode.AUTO
-            self._log(
-                "info",
-                f"New target: ({goto_x:.3f}, {goto_y:.3f}) m "
-                f"goal_id={self._active_goal_id}",
-            )
+                if self._navigating:
+                    self._end_nav("canceled")
+                self._target_x = goto_x
+                self._target_y = goto_y
+                if goto_has_id:
+                    self._active_goal_id = goto_goal_id
+                    if self._active_goal_id >= self._next_goal_id:
+                        self._next_goal_id = self._active_goal_id + 1
+                else:
+                    self._active_goal_id = self._next_goal_id
+                    self._next_goal_id += 1
+                self._navigating = True
+                self._mode = DriveMode.AUTO
+                self._log(
+                    "info",
+                    f"New target: ({goto_x:.3f}, {goto_y:.3f}) m "
+                    f"goal_id={self._active_goal_id}",
+                )
 
-        if cmd_vel_seen:
+        # Enter Manual only if cmd_vel arrived after the latest stop/zero.
+        if cmd_vel_seen and last_cmd_t > stop_t and last_cmd_t > zero_t:
             if self._navigating:
                 self._end_nav("canceled")
             self._mode = DriveMode.MANUAL
@@ -441,10 +495,11 @@ class MobileBaseRuntime:
                     obj.close()
                 except Exception:
                     pass
-        try:
-            self.session.close()
-        except Exception:
-            pass
+        if self.session is not None:
+            try:
+                self.session.close()
+            except Exception:
+                pass
 
 
 def dry_run_report(cfg: RobotConfig) -> str:

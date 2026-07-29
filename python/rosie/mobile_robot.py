@@ -14,6 +14,7 @@ from typing import Any
 
 from rosie import Session, topics
 from rosie.messages import encode_json
+from rosie.session import Qos
 from rosie.std_msgs import Cmd, Goto
 from rosie.tools.teleop_twist import run_teleop
 
@@ -24,6 +25,9 @@ def _msg_cmd(op: str, value: Any = None) -> bytes:
     if value is None:
         return Cmd(op=op).to_bytes()
     return encode_json({"op": op, "value": value})
+
+
+_CMD_QOS = Qos.COMMAND
 
 
 class MobileRobot:
@@ -112,19 +116,27 @@ class MobileRobot:
         return None
 
     def stop(self) -> None:
-        self.session.publish(topics.CMD, _msg_cmd("stop"))
+        self.session.publish(topics.CMD, _msg_cmd("stop"), qos=_CMD_QOS)
 
     def zero(self) -> None:
-        self.session.publish(topics.CMD, _msg_cmd("zero"))
+        self.session.publish(topics.CMD, _msg_cmd("zero"), qos=_CMD_QOS)
 
     def set_heading_source(self, imu: bool | None = None) -> None:
         if imu is None:
-            self.session.publish(topics.CMD, _msg_cmd("heading_source"))
+            self.session.publish(
+                topics.CMD, _msg_cmd("heading_source"), qos=_CMD_QOS
+            )
         else:
-            self.session.publish(topics.CMD, _msg_cmd("heading_source", bool(imu)))
+            self.session.publish(
+                topics.CMD,
+                _msg_cmd("heading_source", bool(imu)),
+                qos=_CMD_QOS,
+            )
 
     def set_camera_enable(self, enable: bool = True) -> None:
-        self.session.publish(topics.CMD, _msg_cmd("camera_enable", bool(enable)))
+        self.session.publish(
+            topics.CMD, _msg_cmd("camera_enable", bool(enable)), qos=_CMD_QOS
+        )
 
     def set_gains(
         self,
@@ -146,11 +158,13 @@ class MobileRobot:
             value["i_clamp"] = float(i_clamp)
         if not value:
             raise ValueError("set_gains requires at least one of kp, ki, kd, i_clamp")
-        self.session.publish(topics.CMD, _msg_cmd("set_gains", value))
+        self.session.publish(
+            topics.CMD, _msg_cmd("set_gains", value), qos=_CMD_QOS
+        )
 
     def get_gains(self) -> None:
         """Request gain / control telemetry publish (see topics.CONTROL)."""
-        self.session.publish(topics.CMD, _msg_cmd("get_gains"))
+        self.session.publish(topics.CMD, _msg_cmd("get_gains"), qos=_CMD_QOS)
 
     def goto(self, x: float, y: float, *, goal_id: int | None = None) -> int:
         """Publish a planar goal (fire-and-forget). Returns ``goal_id``.
@@ -167,19 +181,30 @@ class MobileRobot:
         self.session.publish(
             topics.GOTO,
             Goto(x=float(x), y=float(y), goal_id=int(goal_id)).to_bytes(),
+            qos=_CMD_QOS,
         )
         return int(goal_id)
 
-    def drive_to(self, x: float, y: float, poll_s: float = 0.1) -> dict:
+    def drive_to(
+        self,
+        x: float,
+        y: float,
+        poll_s: float = 0.1,
+        *,
+        timeout_s: float = 120.0,
+    ) -> dict:
         """Blocking helper: ``goto``, then wait for matching ``nav_result``.
 
         Prints pose progress. Ctrl-C sends ``stop`` and re-raises.
+        Raises ``TimeoutError`` if no matching ``nav_result`` within
+        ``timeout_s`` (default 120 s).
         Returns the ``nav_result`` dict (``goal_id``, ``status``, …).
         """
         goal_id = self.goto(x, y)
         print(
             f"  driving to ({x}, {y}) m goal_id={goal_id} ...  (Ctrl-C to send STOP)"
         )
+        deadline = time.monotonic() + float(timeout_s)
         try:
             while True:
                 with self._lock:
@@ -196,6 +221,12 @@ class MobileRobot:
                             f"navigation {status} for goal_id={goal_id}"
                         )
                     return result
+                if time.monotonic() >= deadline:
+                    self.stop()
+                    print()
+                    raise TimeoutError(
+                        f"no nav_result for goal_id={goal_id} within {timeout_s}s"
+                    )
                 p = self.pose()
                 if p:
                     sys.stdout.write(

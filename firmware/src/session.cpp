@@ -164,7 +164,30 @@ void Session::poll() {
 #endif
 }
 
-int Session::createPublisher(const char* name) {
+void Session::fillPublisherOptions_(Qos qos, void* options_out) {
+  auto* opts = static_cast<z_publisher_options_t*>(options_out);
+  z_publisher_options_default(opts);
+  // MCU never BLOCK: nav_result / telemetry may publish from tick(); a blocking
+  // put would stall the control loop. Host Python uses BLOCK for Command/Critical.
+  opts->congestion_control = Z_CONGESTION_CONTROL_DROP;
+  switch (qos) {
+    case Qos::Command:
+      opts->priority = Z_PRIORITY_INTERACTIVE_HIGH;
+      opts->is_express = true;
+      break;
+    case Qos::Bulk:
+      opts->priority = Z_PRIORITY_DATA_LOW;
+      opts->is_express = false;
+      break;
+    case Qos::Stream:
+    default:
+      opts->priority = Z_PRIORITY_DATA;
+      opts->is_express = false;
+      break;
+  }
+}
+
+int Session::createPublisher(const char* name, Qos qos) {
   if (!ok_ || !impl_) return -1;
   char keyexpr[kMaxKeyLen];
   if (!resolveName(name, keyexpr, sizeof(keyexpr))) {
@@ -175,8 +198,10 @@ int Session::createPublisher(const char* name) {
     if (impl_->pubs[i].used) continue;
     z_view_keyexpr_t ke;
     z_view_keyexpr_from_str_unchecked(&ke, keyexpr);
+    z_publisher_options_t opts;
+    fillPublisherOptions_(qos, &opts);
     if (z_declare_publisher(z_session_loan(&impl_->session), &impl_->pubs[i].pub,
-                            z_view_keyexpr_loan(&ke), NULL) < 0) {
+                            z_view_keyexpr_loan(&ke), &opts) < 0) {
       Serial.printf("Rosie: declare publisher failed: %s\n", keyexpr);
       return -1;
     }
@@ -187,7 +212,7 @@ int Session::createPublisher(const char* name) {
   return -1;
 }
 
-int Session::createFleetPublisher(const char* name) {
+int Session::createFleetPublisher(const char* name, Qos qos) {
   if (!ok_ || !impl_) return -1;
   char keyexpr[kMaxKeyLen];
   if (!resolveFleetName(name, keyexpr, sizeof(keyexpr))) {
@@ -198,8 +223,10 @@ int Session::createFleetPublisher(const char* name) {
     if (impl_->pubs[i].used) continue;
     z_view_keyexpr_t ke;
     z_view_keyexpr_from_str_unchecked(&ke, keyexpr);
+    z_publisher_options_t opts;
+    fillPublisherOptions_(qos, &opts);
     if (z_declare_publisher(z_session_loan(&impl_->session), &impl_->pubs[i].pub,
-                            z_view_keyexpr_loan(&ke), NULL) < 0) {
+                            z_view_keyexpr_loan(&ke), &opts) < 0) {
       Serial.printf("Rosie: declare publisher failed: %s\n", keyexpr);
       return -1;
     }

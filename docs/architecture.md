@@ -70,7 +70,8 @@ On the **robot process**, one Session carries all onboard pubs and subs
 `viz`, a custom script) opens its **own** Session, usually bound to the same
 robot id so relative names resolve into that robot’s namespace.
 
-Topic naming and the fleet robot contract: [Conventions](conventions.md).
+Topic naming, delivery classes, and the fleet robot contract:
+[Conventions](conventions.md) ([Delivery and validity](conventions.md#delivery-and-validity)).
 Python API: [Writing sessions](host/writing-sessions.md). MCU API / limits:
 [Firmware](robots/firmware.md).
 

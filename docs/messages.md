@@ -105,7 +105,9 @@ Discrete command / mode switch. Typical topic: `<robot>/cmd`.
 
 Common ops on MobileBase / DiffDriveStack: `"stop"`, `"zero"`, `"set_gains"`,
 `"get_gains"`, plus optional `"heading_source"`, `"camera_enable"`. Robots may
-define their own.
+define their own. Hosts should publish `cmd` with `Qos.COMMAND` (see
+[Delivery and validity](conventions.md#delivery-and-validity)). `stop` / `zero`
+are idempotent; MobileBase applies them by arrival order relative to `cmd_vel`.
 
 `set_gains` takes a JSON object value (partial OK):
 
@@ -133,9 +135,12 @@ Tune live with `rosie tune` / `MobileRobot.set_gains`.
 ### Goto
 
 Planar goal point in the same frame as `Pose2D`. Typical topic: `<robot>/goto`.
-Latest goal wins. Hosts should set `goal_id`; if omitted, MobileBase assigns
-one. Completion is published on `nav_result` (not inferred from `pose` alone).
-See [Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
+Hosts should set `goal_id` and publish with `Qos.COMMAND`; if omitted,
+MobileBase assigns one. While navigating, a duplicate `goal_id` is ignored and
+a lower id is treated as stale; a higher id preempts. When idle, any `goto` is
+accepted. Completion is published on `nav_result` (not inferred from `pose`
+alone). See [Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers)
+and [Delivery and validity](conventions.md#delivery-and-validity).
 
 | Field | Type | Meaning |
 |-------|------|---------|

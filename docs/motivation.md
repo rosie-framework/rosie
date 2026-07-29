@@ -196,7 +196,7 @@ never need firmware tooling.
 | MCU                          | Not native; Micro-ROS / bridges (DDS/XRCE)  | First-class: ESP32 zenoh-pico + DiffDriveStack from `robot.yaml`                   |
 | Linux robot                  | Typical ROS 2 install                       | Native `rosie run` **or** ROS + `rosie agent`                                      |
 | Process model                | Node ≈ graph participant                    | **Session** = process handle; topics under a robot                                 |
-| QoS / TF / ROS actions       | Full stack                                  | Omitted; goals use `goto` + `nav_result` topics                                    |
+| QoS / TF / ROS actions       | Full stack                                  | Fixed delivery classes ([Conventions](conventions.md#delivery-and-validity)); goals use `goto` + `nav_result`; no TF / ROS actions |
 | Bags                         | Mature `rosbag2`                            | Fleet JSONL `.rosiebag` (+ gzip, MCAP export)                                      |
 | Teaching / research bring-up | Hours–days for a clean install              | Shared AP + `rosie router` + teleop in minutes                                     |
 | Bus auth                     | SROS2 / DDS security (heavy)                | Open by default; `--secure` for usrpwd + allowlist ([Security](fleet/security.md)) |
@@ -219,7 +219,8 @@ viz, and `rosie mcu …`
 
 ## What we drop on purpose
 
-- DDS and complex QoS matrices (on the Rosie bus)
+- DDS and configurable QoS profile matrices (Rosie uses a small fixed set of
+  delivery classes — [Conventions](conventions.md#delivery-and-validity))
 - `rcl` / `rmw` layering and colcon/ament as hard requirements for Rosie itself
 - Custom IDL + CDR as the default wire format
 - Treating every sensor as its own named graph node

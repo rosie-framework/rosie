@@ -1,7 +1,7 @@
 """Rosie — lightweight ROS2-inspired framework over Zenoh."""
 
 from .messages import decode_json, encode_json, stamp_now, with_stamp
-from .session import Session
+from .session import Qos, Session
 from .fleet import Fleet, TopicMap
 from .manifest import (
     FleetManifest,
@@ -16,6 +16,7 @@ from . import topics
 
 __all__ = [
     "Session",
+    "Qos",
     "Fleet",
     "TopicMap",
     "FleetManifest",

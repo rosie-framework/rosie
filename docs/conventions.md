@@ -125,22 +125,61 @@ are documented in [Mobile base → Navigation helpers](robots/mobile-base.md#nav
 - Structured messages: UTF-8 JSON with a top-level `stamp` ([architecture](architecture.md)).
 - Compressed images and similar: **raw bytes**, not JSON.
 - Robots may add **extra JSON fields** on standard topics as long as the std
-  fields remain present. **MobileBase** pose extras (progress while navigating):
+  fields remain present.
 
-  | Extra field | Meaning |
-  |-------------|---------|
-  | `heading_deg` | yaw in degrees (convenience) |
-  | `dist` | distance to current goto target (m) |
-  | `navigating` | bool — AUTO goto in progress |
-  | `goal_id` | active goto attempt id (while `navigating`) |
-  | `mode` | `"idle"` / `"manual"` / `"auto"` |
-  | `imu_ok` / `imu_heading` | optional IMU status |
+**MobileBase** pose extras (progress while navigating):
 
-  Terminal outcome is **`nav_result`**, not an edge on `navigating`. See
-  [Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
+| Extra field | Meaning |
+|-------------|---------|
+| `heading_deg` | yaw in degrees (convenience) |
+| `dist` | distance to current goto target (m) |
+| `navigating` | bool — AUTO goto in progress |
+| `goal_id` | active goto attempt id (while `navigating`) |
+| `mode` | `"idle"` / `"manual"` / `"auto"` |
+| `imu_ok` / `imu_heading` | optional IMU status |
 
-  Robot description for MCU bring-up is **`robot.yaml`** (not URDF) — see
-  [Mobile base](robots/mobile-base.md).
+Terminal outcome is **`nav_result`**, not an edge on `navigating`. See
+[Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
+
+Robot description for MCU bring-up is **`robot.yaml`** (not URDF) — see
+[Mobile base](robots/mobile-base.md).
+
+## Delivery and validity
+
+Rosie uses a small fixed set of **delivery classes** (not configurable ROS-style
+QoS profiles). Publishers pick a class; Zenoh priority / congestion control
+follow from that choice.
+
+| Class | Typical topics | Host (Python) | MCU (zenoh-pico) |
+|-------|----------------|---------------|------------------|
+| **STREAM** (default) | `pose`, `control`, `presence`, `encoders`, `imu`, `log` | DROP, `DATA` | DROP, `DATA` |
+| **COMMAND** | `cmd`, `goto`, `nav_result` | BLOCK, `INTERACTIVE_HIGH`, express | DROP, `INTERACTIVE_HIGH`, express |
+| **CRITICAL** | `{fleet}/_fleet/estop` | BLOCK, `REAL_TIME`, express | — (published from host) |
+| **BULK** | `camera/compressed` | DROP, `DATA_LOW` | DROP, `DATA_LOW` |
+
+Host **COMMAND** / **CRITICAL** use `BLOCK` so one-shot commands are not dropped
+under congestion. The MCU never blocks a put from `tick()` (that would stall
+actuation); it raises priority instead so drops are less likely under load.
+Demoting camera to **BULK** keeps large frames out of the same priority queue
+as commands.
+
+```python
+from rosie import Session, Qos, topics
+
+session.publish(topics.CMD, {"op": "stop"}, qos=Qos.COMMAND)
+```
+
+**Command precedence (MobileBase / `rosie run`):** callbacks latch requests with
+MCU-local arrival stamps. `tick()` applies them by arrival order — a `cmd_vel`
+older than the latest `stop` / `zero` does not resurrect motion. `stop` stays in
+effect until a strictly newer `cmd_vel` arrives.
+
+**Streams:** the next sample replaces the previous; `cmd_vel` also has a teleop
+deadman (`control.teleop.timeout_ms`). **Goto:** while navigating, an explicit
+`goal_id` equal to the active id is ignored (duplicate); a lower id is ignored
+as stale; a higher id preempts. When idle, any `goto` is accepted.
+
+See [Mobile base → Control loop timing](robots/mobile-base.md#control-loop-timing).
 
 ## Multi-robot / fleet
 
@@ -157,22 +196,5 @@ are documented in [Mobile base → Navigation helpers](robots/mobile-base.md#nav
 - Host sessions default to the local router (`tcp/127.0.0.1:7447`). Set
   `ROSIE_CONNECT` only when the router is on another machine. MCU robots use
   `robot.yaml` `network.connect` with the router host’s LAN IP.
-
-## What Rosie intentionally omits
-
-Compared to ROS 2, Rosie does **not** provide:
-
-- QoS profiles (reliability / history / depth)
-- TF / `frame_id`
-- A remote parameter server (params are local + env override only)
-- Services and ROS-style action servers (long-running goals use ordinary
-  topics: `goto` + `nav_result` — see [Mobile base](robots/mobile-base.md#navigation-helpers))
-- Launch-file topic remapping (use absolute names or change robot/fleet;
-  team bring-up is `rosie fleet wait` / a fleet manifest + presence wait, not
-  N remapped launches)
-- A full RViz-class visualizer (use lightweight `rosie viz` for 2D fleet poses)
-
-Prefer `std_msgs` for cross-robot contracts; use plain JSON or custom keys when a
-robot needs something outside that set.
-
-Full comparison: [Motivation](motivation.md).
+- Prefer `std_msgs` for cross-robot contracts; use plain JSON or custom keys
+  when a robot needs something outside that set.

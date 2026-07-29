@@ -116,6 +116,34 @@ topics so `rosie teleop` / `rosie drive` still work.
 Twist sources and the shared actuation path under `MobileBase` are described in
 [Layers](#layers). Configure gains in YAML; tune live without reflashing.
 
+### Control loop timing
+
+`MobileBase::spin()` (called every Arduino `loop()`) separates **control** from
+**telemetry**. Under the default build (`Z_FEATURE_MULTI_THREAD=1`), Zenoh
+callbacks already run on the pico **read task** as soon as samples arrive;
+`session_.poll()` is a no-op. Only a single-threaded pico build drains Zenoh
+from `poll()`.
+
+| When | What |
+|------|------|
+| Wire arrival (read task) | Callbacks latch `cmd_vel` / `goto` / `cmd` into `cmd_` (mutex) |
+| Every `control.dt_ms` | `tick()` — odometry, mode arbiter, motors |
+| At `pose_hz` / … | Telemetry publishers |
+
+**Latch vs actuate:** motion callbacks do **not** drive the motors. They only
+store the latest request in an inbox (`cmd_`) with an MCU-local arrival stamp.
+On the next `tick()`, that inbox is applied (mode change + `driveTwist_` → PWM).
+Several `cmd_vel` messages between ticks overwrite the latch; only the last one
+is used. Custom `cmd` handlers (e.g. `set_gains`) may run immediately in the
+callback. `dt_ms` (default `20`) sets the control rate.
+
+**Command precedence:** `tick()` honors arrival order. A `cmd_vel` older than
+the latest `stop` / `zero` does not re-enter MANUAL. While navigating, a `goto`
+with the same `goal_id` is ignored (duplicate); a lower id is ignored as stale;
+a higher id preempts. Delivery classes for pubs (`nav_result` = COMMAND,
+camera = BULK, telemetry = STREAM): [Conventions → Delivery and validity](../conventions.md#delivery-and-validity).
+MCU publishers never use blocking congestion control from `tick()`.
+
 Host `cmd_vel` (MANUAL) or onboard goto (AUTO) produces a body Twist `(v, w)`.
 That Twist goes through `BaseKinematics`, then an optional `VelocityController`,
 then `MotorDriver`. Teleop and goto share that path today.

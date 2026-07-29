@@ -11,6 +11,19 @@ namespace rosie {
 typedef void (*SampleCallback)(const uint8_t* data, size_t len, void* user);
 
 /**
+ * Delivery class for publishers (see docs/conventions.md).
+ *
+ * Mapped to zenoh-pico ``z_publisher_options_t`` at declare time.
+ * Host Python uses BLOCK for Command/Critical; MCU always DROP + priority
+ * so ``tick()`` never stalls on a blocking put.
+ */
+enum class Qos {
+  Stream,   ///< Default telemetry (DROP, DATA)
+  Command,  ///< One-shot cmd/goto/nav_result (DROP, INTERACTIVE_HIGH, express)
+  Bulk,     ///< Large streams e.g. camera (DROP, DATA_LOW)
+};
+
+/**
  * Zenoh session for ESP32 (zenoh-pico), bound to a robot (+ optional fleet).
  *
  * Relative topic names resolve to ``{robot}/name`` or ``{fleet}/{robot}/name``.
@@ -56,10 +69,10 @@ class Session {
   void startBackgroundTasks();
 
   /** Declare a publisher; ``name`` is relative or absolute. Returns id or -1. */
-  int createPublisher(const char* name);
+  int createPublisher(const char* name, Qos qos = Qos::Stream);
 
   /** Declare a fleet-scoped publisher (requires fleet). Returns id or -1. */
-  int createFleetPublisher(const char* name);
+  int createFleetPublisher(const char* name, Qos qos = Qos::Stream);
 
   /** Declare a subscriber with raw-bytes callback. */
   bool createSubscription(const char* name, SampleCallback cb, void* user = nullptr);
@@ -85,6 +98,7 @@ class Session {
   Impl* impl_ = nullptr;
 
   static void copyId_(char* dst, size_t dst_len, const char* src, const char* fallback);
+  static void fillPublisherOptions_(Qos qos, void* options_out);
 };
 
 }  // namespace rosie

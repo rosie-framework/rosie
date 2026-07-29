@@ -5,16 +5,25 @@
  *
  *   begin(connect) → loop: spin()
  *
- * ``spin()`` polls Zenoh, runs ``tick()`` at ``dt_ms``, and publishes telemetry
- * at configured rates. ``tick()`` is the control arbiter:
+ * ``spin()`` does three independent things each Arduino ``loop()``:
  *
- *   1. Read sensors → update odometry
- *   2. Snapshot inbox (cmd_vel / goto / stop / zero) under a mutex
- *   3. Apply mode transitions (Idle / Manual / Auto)
- *   4. Drive motors (teleop deadman or cascaded goto)
+ *   - ``session_.poll()`` — no-op when ``Z_FEATURE_MULTI_THREAD=1`` (default);
+ *     otherwise drains Zenoh on this thread
+ *   - ``tick()`` — every ``control.dt_ms`` (odometry + mode + motors)
+ *   - telemetry pubs — at pose_hz / presence_hz / …
  *
- * Zenoh callbacks only latch into ``cmd_``; actuation happens on the tick.
- * See docs/robots/mobile-base.md for topics and YAML.
+ * Latch vs actuate (important):
+ *
+ *   Under the default multi-threaded build, Zenoh callbacks run on the
+ *   pico read task as soon as samples arrive (concurrent with ``tick()``).
+ *   Built-in cmds (stop / zero / goto / cmd_vel) never touch motors there —
+ *   they only write the latest request into ``cmd_`` under a mutex ("latch").
+ *   ``tick()`` later snapshots ``cmd_`` and performs mode changes +
+ *   ``driveTwist_`` ("actuate"). Many cmd_vels between ticks overwrite the
+ *   latch; only the last one is applied at dt_ms. Custom ``cmd`` handlers
+ *   (e.g. set_gains) may run immediately in the callback.
+ *
+ * See docs/robots/mobile-base.md (control loop timing + topics/YAML).
  */
 
 #include "rosie/mobile_base.h"
@@ -116,18 +125,19 @@ bool MobileBase::ready() const { return ok_ && session_.ready(); }
 /** Declare standard MobileBase pubs/subs once (relative names → Session prefix). */
 void MobileBase::declareEndpoints_() {
   if (endpoints_) return;
-  pub_pose_ = session_.createPublisher("pose");
-  pub_log_ = session_.createPublisher("log");
-  pub_cam_ = session_.createPublisher("camera/compressed");
-  pub_presence_ = session_.createPublisher("presence");
-  pub_control_ = session_.createPublisher("control");
-  pub_nav_result_ = session_.createPublisher("nav_result");
+  pub_pose_ = session_.createPublisher("pose", Qos::Stream);
+  pub_log_ = session_.createPublisher("log", Qos::Stream);
+  pub_cam_ = session_.createPublisher("camera/compressed", Qos::Bulk);
+  pub_presence_ = session_.createPublisher("presence", Qos::Stream);
+  pub_control_ = session_.createPublisher("control", Qos::Stream);
+  // COMMAND: high priority + express; MCU still DROP (never block in tick).
+  pub_nav_result_ = session_.createPublisher("nav_result", Qos::Command);
   // Optional raw telemetry — only when pub_hz > 0 (uses Session pub slots).
   if (cfg_.encoders_hz > 0.1f) {
-    pub_encoders_ = session_.createPublisher("encoders");
+    pub_encoders_ = session_.createPublisher("encoders", Qos::Stream);
   }
   if (cfg_.imu_hz > 0.1f) {
-    pub_imu_ = session_.createPublisher("imu");
+    pub_imu_ = session_.createPublisher("imu", Qos::Stream);
   }
   session_.createSubscription("cmd_vel", onCmdVel_, this);
   session_.createSubscription("goto", onGoto_, this);
@@ -136,10 +146,16 @@ void MobileBase::declareEndpoints_() {
 }
 
 // ---------------------------------------------------------------------------
-// Zenoh inbox callbacks — latch only; tick() actuates
+// Zenoh inbox callbacks — latch only for motion (no motors here)
+//
+// Under Z_FEATURE_MULTI_THREAD=1 (default), these run on the zenoh-pico read
+// task as soon as a sample arrives — not from spin()/poll(). They must stay
+// short: parse JSON, update cmd_, return. Motors, mode transitions, and
+// odometry run later in tick() at a fixed dt_ms. Custom cmd handlers
+// (set_gains / get_gains) may run immediately in this task.
 // ---------------------------------------------------------------------------
 
-/** Host teleop / manual Twist ``{v,w}`` → Manual mode on next tick. */
+/** Latch Twist into cmd_; Manual mode + drive happen on the next tick(). */
 void MobileBase::onCmdVel_(const uint8_t* data, size_t len, void* user) {
   auto* self = static_cast<MobileBase*>(user);
   char buf[128];
@@ -158,7 +174,7 @@ void MobileBase::onCmdVel_(const uint8_t* data, size_t len, void* user) {
   self->unlockCmd_();
 }
 
-/** Planar goal ``{x,y,goal_id?}`` → Auto navigation on next tick. */
+/** Latch planar goal into cmd_; Auto navigation starts on the next tick(). */
 void MobileBase::onGoto_(const uint8_t* data, size_t len, void* user) {
   auto* self = static_cast<MobileBase*>(user);
   char buf[160];
@@ -179,13 +195,15 @@ void MobileBase::onGoto_(const uint8_t* data, size_t len, void* user) {
     self->cmd_.goto_has_goal_id = false;
     self->cmd_.goto_goal_id = 0;
   }
+  self->cmd_.goto_ms = millis();
   self->cmd_.goto_requested = true;
   self->unlockCmd_();
 }
 
 /**
- * Discrete ``cmd`` ops. Built-ins: stop, zero.
- * Other ops dispatch to handlers registered via onCmd() (e.g. set_gains).
+ * Latch discrete ``cmd`` ops (or dispatch custom handlers).
+ * Built-ins stop/zero only set flags; tick() stops motors / zeros pose.
+ * Handlers registered via onCmd() (e.g. set_gains) may run here immediately.
  */
 void MobileBase::onCmd_(const uint8_t* data, size_t len, void* user) {
   auto* self = static_cast<MobileBase*>(user);
@@ -199,12 +217,14 @@ void MobileBase::onCmd_(const uint8_t* data, size_t len, void* user) {
   if (strcmp(op, "stop") == 0) {
     self->lockCmd_();
     self->cmd_.stop_requested = true;
+    self->cmd_.stop_ms = millis();
     self->unlockCmd_();
     return;
   }
   if (strcmp(op, "zero") == 0) {
     self->lockCmd_();
     self->cmd_.zero_requested = true;
+    self->cmd_.zero_ms = millis();
     self->unlockCmd_();
     return;
   }
@@ -263,12 +283,14 @@ void MobileBase::onGetGains_(const char* /*op*/, JsonVariantConst /*value*/, voi
 void MobileBase::requestStop() {
   lockCmd_();
   cmd_.stop_requested = true;
+  cmd_.stop_ms = millis();
   unlockCmd_();
 }
 
 void MobileBase::requestZero() {
   lockCmd_();
   cmd_.zero_requested = true;
+  cmd_.zero_ms = millis();
   unlockCmd_();
 }
 
@@ -278,6 +300,7 @@ void MobileBase::requestGoto(float x, float y, int32_t goal_id, bool has_goal_id
   cmd_.goto_y = y;
   cmd_.goto_goal_id = goal_id;
   cmd_.goto_has_goal_id = has_goal_id;
+  cmd_.goto_ms = millis();
   cmd_.goto_requested = true;
   unlockCmd_();
 }
@@ -411,10 +434,15 @@ void MobileBase::navigate_() {
 // ---------------------------------------------------------------------------
 
 /**
- * One control period. Prefer calling via spin() so publish rates stay aligned.
+ * One control period (``control.dt_ms``). Prefer calling via spin().
  *
- * Order matters: sensors/odom first, then consume latched commands, then drive.
- * Latest cmd_vel or goto preempts an in-progress navigation (canceled).
+ * This is where latched inbox state becomes action:
+ *
+ *   1. Sensors → odometry
+ *   2. Snapshot + clear edge flags in cmd_ (mutex); arrival stamps retained
+ *   3. Mode transitions from that snapshot (arrival-order: stop/zero beat
+ *      older cmd_vel; goto ignores duplicate/stale goal_id while navigating)
+ *   4. Manual (deadman teleop) or Auto (goto) → driveTwist_ → motors
  */
 void MobileBase::tick() {
   // --- Sensors → odometry (+ cache for optional encoders/imu topics) ---
@@ -453,7 +481,7 @@ void MobileBase::tick() {
   }
   kinematics_.updateOdometry(ticks, nch, dt, yaw);
 
-  // --- Snapshot + clear edge-triggered inbox flags ---
+  // --- Snapshot + clear edge-triggered inbox flags (keep arrival stamps) ---
   CommandState snap;
   lockCmd_();
   snap = cmd_;
@@ -465,7 +493,7 @@ void MobileBase::tick() {
 
   DriveMode prev_mode = mode_;
 
-  // --- Apply discrete requests (stop / zero / goto / enter Manual) ---
+  // --- Apply discrete requests by arrival order (MCU-local millis stamps) ---
   if (snap.stop_requested) {
     if (navigating_) {
       endNavigation_("canceled");
@@ -487,23 +515,51 @@ void MobileBase::tick() {
     log("info", "Pose zeroed.");
   }
   if (snap.goto_requested) {
-    if (navigating_) endNavigation_("canceled");
-    target_x_ = snap.goto_x;
-    target_y_ = snap.goto_y;
-    if (snap.goto_has_goal_id) {
-      active_goal_id_ = snap.goto_goal_id;
-      if (active_goal_id_ >= next_goal_id_) next_goal_id_ = active_goal_id_ + 1;
+    // Superseded by a newer stop/zero in the same window (or sticky stamps).
+    if (snap.goto_ms < snap.stop_ms || snap.goto_ms < snap.zero_ms) {
+      // ignore
+    } else if (navigating_ && snap.goto_has_goal_id) {
+      if (snap.goto_goal_id == active_goal_id_) {
+        // Duplicate of the goal already in progress — keep driving.
+      } else if (snap.goto_goal_id < active_goal_id_) {
+        char buf[72];
+        snprintf(buf, sizeof(buf), "Ignoring stale goto goal_id=%ld (active=%ld)",
+                 (long)snap.goto_goal_id, (long)active_goal_id_);
+        log("warn", buf);
+      } else {
+        if (navigating_) endNavigation_("canceled");
+        target_x_ = snap.goto_x;
+        target_y_ = snap.goto_y;
+        active_goal_id_ = snap.goto_goal_id;
+        if (active_goal_id_ >= next_goal_id_) next_goal_id_ = active_goal_id_ + 1;
+        navigating_ = true;
+        mode_ = DriveMode::Auto;
+        char buf[80];
+        snprintf(buf, sizeof(buf), "New target: (%.3f, %.3f) m goal_id=%ld", target_x_,
+                 target_y_, (long)active_goal_id_);
+        log("info", buf);
+      }
     } else {
-      active_goal_id_ = next_goal_id_++;
+      if (navigating_) endNavigation_("canceled");
+      target_x_ = snap.goto_x;
+      target_y_ = snap.goto_y;
+      if (snap.goto_has_goal_id) {
+        active_goal_id_ = snap.goto_goal_id;
+        if (active_goal_id_ >= next_goal_id_) next_goal_id_ = active_goal_id_ + 1;
+      } else {
+        active_goal_id_ = next_goal_id_++;
+      }
+      navigating_ = true;
+      mode_ = DriveMode::Auto;
+      char buf[80];
+      snprintf(buf, sizeof(buf), "New target: (%.3f, %.3f) m goal_id=%ld", target_x_,
+               target_y_, (long)active_goal_id_);
+      log("info", buf);
     }
-    navigating_ = true;
-    mode_ = DriveMode::Auto;
-    char buf[80];
-    snprintf(buf, sizeof(buf), "New target: (%.3f, %.3f) m goal_id=%ld", target_x_, target_y_,
-             (long)active_goal_id_);
-    log("info", buf);
   }
-  if (snap.cmd_vel_seen) {
+  // Enter Manual only if cmd_vel arrived after the latest stop/zero (sticky stop).
+  if (snap.cmd_vel_seen && snap.last_cmd_vel_ms > snap.stop_ms &&
+      snap.last_cmd_vel_ms > snap.zero_ms) {
     if (navigating_) endNavigation_("canceled");
     mode_ = DriveMode::Manual;
   }
@@ -540,8 +596,12 @@ void MobileBase::tick() {
 }
 
 /**
- * Arduino ``loop()`` entry: Zenoh poll + timed tick + telemetry publishers.
- * Call frequently; rates come from MobileBaseConfig (*_hz / dt_ms).
+ * Arduino ``loop()`` entry: timed tick + telemetry publishers.
+ *
+ * Call as often as possible. Under ``Z_FEATURE_MULTI_THREAD=1`` (default),
+ * ``session_.poll()`` is a no-op — Zenoh callbacks already run on the pico
+ * read task. ``tick()`` runs only every ``dt_ms``. Publish rates are
+ * independent (*_hz).
  */
 void MobileBase::spin() {
   session_.poll();

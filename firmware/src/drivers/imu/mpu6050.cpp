@@ -36,8 +36,10 @@ bool Mpu6050::begin() {
   }
   if (!writeReg_(0x6B, 0x00)) return false;
   delay(10);
-  if (!writeReg_(0x1B, 0x08)) return false;
+  if (!writeReg_(0x1B, 0x08)) return false;  // gyro ±500 deg/s
+  if (!writeReg_(0x1C, 0x00)) return false;  // accel ±2 g
   if (!writeReg_(0x1A, 0x03)) return false;
+  accel_lsb_per_g_ = 16384.0f;
   ok_ = true;
   return true;
 }
@@ -74,6 +76,27 @@ bool Mpu6050::readGyroDps(float* gx, float* gy, float* gz) {
   *gx = (rx - gyro_bias_[0]) / cfg_.gyro_lsb_per_dps;
   *gy = (ry - gyro_bias_[1]) / cfg_.gyro_lsb_per_dps;
   *gz = (rz - gyro_bias_[2]) / cfg_.gyro_lsb_per_dps;
+  return true;
+}
+
+bool Mpu6050::readImu(float* ax, float* ay, float* az, float* gx, float* gy,
+                      float* gz) {
+  uint8_t b[14];
+  if (!readReg_(0x3B, b, 14)) return false;
+  int16_t rax = (int16_t)((b[0] << 8) | b[1]);
+  int16_t ray = (int16_t)((b[2] << 8) | b[3]);
+  int16_t raz = (int16_t)((b[4] << 8) | b[5]);
+  int16_t rgx = (int16_t)((b[8] << 8) | b[9]);
+  int16_t rgy = (int16_t)((b[10] << 8) | b[11]);
+  int16_t rgz = (int16_t)((b[12] << 8) | b[13]);
+  constexpr float kG = 9.80665f;
+  *ax = (rax / accel_lsb_per_g_) * kG;
+  *ay = (ray / accel_lsb_per_g_) * kG;
+  *az = (raz / accel_lsb_per_g_) * kG;
+  float dps_to_rad = static_cast<float>(M_PI) / 180.0f;
+  *gx = ((rgx - gyro_bias_[0]) / cfg_.gyro_lsb_per_dps) * dps_to_rad;
+  *gy = ((rgy - gyro_bias_[1]) / cfg_.gyro_lsb_per_dps) * dps_to_rad;
+  *gz = ((rgz - gyro_bias_[2]) / cfg_.gyro_lsb_per_dps) * dps_to_rad;
   return true;
 }
 

@@ -15,7 +15,7 @@ struct Mpu6050Config {
   int cal_samples = 200;
 };
 
-/** MPU6050 gyro helper (yaw rate for odometry fusion). */
+/** MPU6050 accel + gyro helper (yaw rate for odometry; 6-axis for telemetry). */
 class Mpu6050 {
  public:
   explicit Mpu6050(const Mpu6050Config& cfg = {});
@@ -23,6 +23,8 @@ class Mpu6050 {
   bool begin();
   void calibrateGyroBias();
   bool readGyroDps(float* gx, float* gy, float* gz);
+  /** Accel m/s² and gyro rad/s (bias-corrected gyro). */
+  bool readImu(float* ax, float* ay, float* az, float* gx, float* gy, float* gz);
   bool readYawRate(float* yaw_rad_s);
   bool ok() const { return ok_; }
 
@@ -33,6 +35,7 @@ class Mpu6050 {
   Mpu6050Config cfg_;
   bool ok_ = false;
   float gyro_bias_[3] = {0, 0, 0};
+  float accel_lsb_per_g_ = 16384.0f;  // ±2 g default
 };
 
 }  // namespace rosie

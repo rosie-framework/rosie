@@ -86,6 +86,10 @@ class MobileBaseRuntime:
         self.teleop_timeout_ms = int(teleop.get("timeout_ms", 400))
         self.pose_hz = float(control.get("pose_hz", 20))
         self.presence_hz = float(control.get("presence_hz", 1))
+        enc_cfg = self._raw.get("encoders") or {}
+        imu_cfg = self._raw.get("imu") or {}
+        self.encoders_hz = float(enc_cfg.get("pub_hz", 0) or 0)
+        self.imu_hz = float(imu_cfg.get("pub_hz", 0) or 0)
 
         self._lock = threading.Lock()
         self._cmd_v = 0.0
@@ -105,6 +109,12 @@ class MobileBaseRuntime:
         self._target_x = 0.0
         self._target_y = 0.0
         self._mode = DriveMode.IDLE
+        self._last_enc_left = 0
+        self._last_enc_right = 0
+        self._last_enc_valid = False
+        self._last_accel = (0.0, 0.0, 0.0)
+        self._last_gyro = (0.0, 0.0, 0.0)
+        self._last_imu_ok = False
 
         self.session = Session(
             robot=robot or cfg.robot,
@@ -172,6 +182,37 @@ class MobileBaseRuntime:
             doc["fleet_id"] = self.session.fleet
         self.session.publish(topics.PRESENCE, encode_json(doc))
 
+    def _publish_encoders(self) -> None:
+        if not self._last_enc_valid:
+            return
+        self.session.publish(
+            topics.ENCODERS,
+            encode_json(
+                {
+                    "left": self._last_enc_left,
+                    "right": self._last_enc_right,
+                }
+            ),
+        )
+
+    def _publish_imu(self) -> None:
+        ax, ay, az = self._last_accel
+        gx, gy, gz = self._last_gyro
+        self.session.publish(
+            topics.IMU,
+            encode_json(
+                {
+                    "accel_x": ax if self._last_imu_ok else 0.0,
+                    "accel_y": ay if self._last_imu_ok else 0.0,
+                    "accel_z": az if self._last_imu_ok else 0.0,
+                    "gyro_x": gx if self._last_imu_ok else 0.0,
+                    "gyro_y": gy if self._last_imu_ok else 0.0,
+                    "gyro_z": gz if self._last_imu_ok else 0.0,
+                    "ok": self._last_imu_ok,
+                }
+            ),
+        )
+
     def _publish_nav_result(self, status: str) -> None:
         p = self.kinematics.pose()
         self.session.publish(
@@ -214,9 +255,29 @@ class MobileBaseRuntime:
         ticks = None
         if self.encoders is not None:
             ticks = self.encoders.read_ticks()
+            self._last_enc_left = int(ticks[0])
+            self._last_enc_right = int(ticks[1])
+            self._last_enc_valid = True
+        else:
+            self._last_enc_valid = False
         yaw_rate = None
         if self.imu is not None:
-            yaw_rate = self.imu.read_yaw_rate()
+            sample = None
+            read_sample = getattr(self.imu, "read_sample", None)
+            if callable(read_sample):
+                sample = read_sample()
+            if sample is not None:
+                self._last_accel = (float(sample[0]), float(sample[1]), float(sample[2]))
+                self._last_gyro = (float(sample[3]), float(sample[4]), float(sample[5]))
+                self._last_imu_ok = True
+                yaw_rate = float(sample[5])
+            else:
+                yaw_rate = self.imu.read_yaw_rate()
+                self._last_imu_ok = yaw_rate is not None
+                if yaw_rate is not None:
+                    self._last_gyro = (0.0, 0.0, float(yaw_rate))
+        else:
+            self._last_imu_ok = False
         self.kinematics.update_odometry(ticks, dt, yaw_rate)
 
         with self._lock:
@@ -325,10 +386,16 @@ class MobileBaseRuntime:
         last_tick = time.monotonic()
         last_pose = 0.0
         last_presence = 0.0
+        last_encoders = 0.0
+        last_imu = 0.0
         pose_period = 1.0 / self.pose_hz if self.pose_hz > 0.1 else 0.05
         presence_period = (
             1.0 / self.presence_hz if self.presence_hz > 0.1 else 1.0
         )
+        encoders_period = (
+            1.0 / self.encoders_hz if self.encoders_hz > 0.1 else 0.0
+        )
+        imu_period = 1.0 / self.imu_hz if self.imu_hz > 0.1 else 0.0
         dt = self.dt_ms / 1000.0
 
         try:
@@ -343,6 +410,20 @@ class MobileBaseRuntime:
                 if now - last_presence >= presence_period:
                     last_presence = now
                     self._publish_presence()
+                if (
+                    encoders_period > 0
+                    and self.encoders is not None
+                    and now - last_encoders >= encoders_period
+                ):
+                    last_encoders = now
+                    self._publish_encoders()
+                if (
+                    imu_period > 0
+                    and self.imu is not None
+                    and now - last_imu >= imu_period
+                ):
+                    last_imu = now
+                    self._publish_imu()
                 time.sleep(0.001)
         finally:
             try:

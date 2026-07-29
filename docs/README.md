@@ -3,8 +3,8 @@
 ## Start here
 
 - [Getting started](getting-started.md)
-- [Motivation](motivation.md)
-- [Architecture](architecture.md)
+- [Motivation](motivation.md) — differentiators; vs ROS 2 / Open-RMF / FreeFleet
+- [Architecture](architecture.md) — bus / Session / Topic; topology; framework vs robot
 - [Conventions](conventions.md) — topics, identity, fleet robot contract
 - [Messages](messages.md)
 

@@ -86,10 +86,33 @@ then pass `--secure` on router and fleet tools.
 
 ### Second person joining (secure)
 
-1. Operator: `rosie fleet add --fleet lab --robot theirbot` and share the secret
-   (`rosie fleet secret --fleet lab`).
-2. Collaborator: `rosie fleet secret --fleet lab --set`, set `fleet: lab`,
-   `rosie secret apply`, then build/flash.
+1. **Operator** enrolls their robot id and shares the bus secret out-of-band
+   (chat, USB stick — not over Zenoh):
+
+   ```bash
+   rosie fleet add --fleet lab --robot theirbot
+   rosie fleet secret --fleet lab          # prints the secret to copy
+   ```
+
+2. **Collaborator** stores that secret on their laptop (prompted, or pass it
+   after `--set`), points the robot yaml at the fleet id, then copies the
+   secret into the robot config and builds:
+
+   ```bash
+   rosie fleet secret --fleet lab --set              # prompts: Fleet secret:
+   # or: rosie fleet secret --fleet lab --set '<paste-secret>'
+   ```
+
+   In `robot.yaml` / `agent.yaml`, set the fleet **id** (not the secret):
+
+   ```yaml
+   fleet: lab
+   ```
+
+   ```bash
+   rosie secret apply --fleet lab          # writes network.fleet_secret into yaml
+   # then build/flash (MCU) or restart `rosie run` / `rosie agent`
+   ```
 
 The secret is **not** sent over Zenoh. Rotate with
 `rosie fleet secret --fleet lab --rotate`, then re-share and rebuild every robot.

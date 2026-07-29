@@ -16,6 +16,9 @@ See also [Messages](messages.md) and [Bring Your Own Robot](robots/byor.md).
 | **Session** | Process-local Zenoh handle bound to a robot (+ fleet) |
 | **Topic** | Actual I/O (`pose`, `cmd_vel`, …)—not one Session per sensor |
 
+Mental model (bus vs Session vs Topic, host vs robot Sessions):
+[Architecture](architecture.md#bus-session-topic).
+
 ## Topic naming
 
 Zenoh key expressions are `/`-joined paths (no leading slash on the wire):
@@ -64,6 +67,8 @@ Constants in `rosie.topics`:
 | `NAV_RESULT` | `nav_result` | robot → host | JSON `NavResult` (goto terminal outcome) |
 | `CMD` | `cmd` | host → robot | JSON `Cmd` (`stop`, `zero`, `set_gains`, …) |
 | `CONTROL` | `control` | robot → host | velocity gains + wheel vel telemetry |
+| `ENCODERS` | `encoders` | robot → host | JSON `EncoderTicks` (opt-in `encoders.pub_hz`) |
+| `IMU` | `imu` | robot → host | JSON `Imu` 6-axis (opt-in `imu.pub_hz`) |
 | `PRESENCE` | `presence` | robot → host | JSON `RobotPresence` |
 | `CAMERA_COMPRESSED` | `camera/compressed` | robot → host | raw bytes (e.g. JPEG) |
 
@@ -84,6 +89,7 @@ way. See [Bridges](robots/bridges.md) for native-vs-bridge guidance and `rosie a
 | **MUST** | `cmd_vel` | Accept `Twist` (`v`, `w`) for teleop / manual control |
 | **SHOULD** | `goto` + `nav_result` | Accept a planar goal and report a terminal outcome (enables `drive_to` / `rosie drive`) |
 | **MAY** | `camera/compressed` | Publish JPEG bytes for the viz camera panel |
+| **MAY** | `encoders`, `imu` | Raw ticks / 6-axis IMU telemetry (`encoders.pub_hz` / `imu.pub_hz`) |
 | **MAY** | `log`, `cmd`, `control` | Structured logs, custom ops, velocity-gain telemetry |
 
 All keys resolve under `{fleet}/{robot}/…`. Extra JSON fields are allowed as long

@@ -249,6 +249,13 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
         _require_supported(entries, edrv, "encoders", platform=platform)
         if platform == "linux" and edrv == "python" and not enc.get("class"):
             raise ValueError("encoders.driver=python requires encoders.class")
+        if "pub_hz" in enc:
+            try:
+                ehz = float(enc["pub_hz"])
+            except (TypeError, ValueError) as e:
+                raise ValueError("robot.yaml: encoders.pub_hz must be a number") from e
+            if ehz < 0:
+                raise ValueError("robot.yaml: encoders.pub_hz must be >= 0")
 
     imu = raw.get("imu")
     if imu:
@@ -257,6 +264,13 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
         _require_supported(entries, chip, "imu", platform=platform)
         if platform == "linux" and chip == "python" and not imu.get("class"):
             raise ValueError("imu.chip=python requires imu.class")
+        if "pub_hz" in imu:
+            try:
+                ihz = float(imu["pub_hz"])
+            except (TypeError, ValueError) as e:
+                raise ValueError("robot.yaml: imu.pub_hz must be a number") from e
+            if ihz < 0:
+                raise ValueError("robot.yaml: imu.pub_hz must be >= 0")
 
     cam = raw.get("camera")
     if cam:
@@ -460,6 +474,7 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
             f"static const int ROSIE_ENC_LB = {_c_int(left[1] if len(left) > 1 else 0)};",
             f"static const int ROSIE_ENC_RA = {_c_int(right[0] if len(right) > 0 else 0)};",
             f"static const int ROSIE_ENC_RB = {_c_int(right[1] if len(right) > 1 else 0)};",
+            f"static const float ROSIE_ENCODERS_PUB_HZ = {_c_float(enc_section.get('pub_hz', 0))};",
         ]
     else:
         lines += [
@@ -468,6 +483,7 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
             "static const int ROSIE_ENC_LB = 0;",
             "static const int ROSIE_ENC_RA = 0;",
             "static const int ROSIE_ENC_RB = 0;",
+            "static const float ROSIE_ENCODERS_PUB_HZ = 0.0f;",
         ]
 
     lines += [
@@ -503,6 +519,7 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
             f"static const uint8_t ROSIE_IMU_ADDR = {_c_int(i2c.get('addr', 0x68))};",
             f"static const int ROSIE_IMU_YAW_AXIS = {_c_int(imu.get('yaw_axis', 2))};",
             f"static const float ROSIE_IMU_YAW_SIGN = {_c_float(imu.get('yaw_sign', -1))};",
+            f"static const float ROSIE_IMU_PUB_HZ = {_c_float(imu.get('pub_hz', 0))};",
         ]
     else:
         lines += [
@@ -512,6 +529,7 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
             "static const uint8_t ROSIE_IMU_ADDR = 0;",
             "static const int ROSIE_IMU_YAW_AXIS = 2;",
             "static const float ROSIE_IMU_YAW_SIGN = -1.0f;",
+            "static const float ROSIE_IMU_PUB_HZ = 0.0f;",
         ]
 
     lines += [

@@ -67,8 +67,10 @@ Prefer [Mobile base](mobile-base.md):
 You should not wire `ROSIE_*` macros by hand — `DiffDriveStack` consumes the
 driver and pin macros emitted from `robot.yaml` (`motors.driver`, encoders,
 IMU, camera). Optional onboard velocity PID: `control.velocity` in YAML
-(default 0,0,0 = open-loop); tune live with `rosie tune`. Supported ids:
-[Drivers](drivers.md) / `rosie drivers list`.
+(default 0,0,0 = open-loop); tune live with `rosie tune`. Optional raw
+sensor telemetry: `encoders.pub_hz` / `imu.pub_hz` publish `encoders` /
+`imu` topics (default off). Supported ids: [Drivers](drivers.md) /
+`rosie drivers list`.
 
 Headers: `rosie/diff_drive_stack.h`, `rosie/mobile_base.h`, `rosie/velocity_controller.h`,
 `rosie/motor_driver.h`, `rosie/diff_drive.h`,

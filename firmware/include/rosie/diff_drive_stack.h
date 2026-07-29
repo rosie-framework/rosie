@@ -64,6 +64,14 @@
 #define ROSIE_HAS_CAMERA 0
 #endif
 
+#ifndef ROSIE_ENCODERS_PUB_HZ
+#define ROSIE_ENCODERS_PUB_HZ 0.0f
+#endif
+
+#ifndef ROSIE_IMU_PUB_HZ
+#define ROSIE_IMU_PUB_HZ 0.0f
+#endif
+
 #if ROSIE_HAS_CAMERA && !defined(ROSIE_CAMERA_ESP32S3_EYE) && !defined(ROSIE_CAMERA_CUSTOM)
 #define ROSIE_CAMERA_ESP32S3_EYE 1
 #endif
@@ -140,7 +148,9 @@ class DiffDriveStack {
 #endif
 #if ROSIE_HAS_IMU
             readYaw_,
+            readImu_,
 #else
+            nullptr,
             nullptr,
 #endif
             onZero_, this},
@@ -293,6 +303,8 @@ class DiffDriveStack {
     c.goto_gains.align_tol = ROSIE_ALIGN_TOL;
     c.pose_hz = ROSIE_POSE_HZ;
     c.presence_hz = ROSIE_PRESENCE_HZ;
+    c.encoders_hz = ROSIE_ENCODERS_PUB_HZ;
+    c.imu_hz = ROSIE_IMU_PUB_HZ;
     return c;
   }
 
@@ -306,6 +318,11 @@ class DiffDriveStack {
   static bool readYaw_(float* yaw, void* user) {
     auto* self = static_cast<DiffDriveStack*>(user);
     return self->imu_.ok() && self->imu_.readYawRate(yaw);
+  }
+  static bool readImu_(float* ax, float* ay, float* az, float* gx, float* gy,
+                       float* gz, void* user) {
+    auto* self = static_cast<DiffDriveStack*>(user);
+    return self->imu_.ok() && self->imu_.readImu(ax, ay, az, gx, gy, gz);
   }
 #endif
 

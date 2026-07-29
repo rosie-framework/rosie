@@ -32,6 +32,8 @@ struct MobileBaseConfig {
   float pose_hz = 20.0f;
   float presence_hz = 1.0f;
   float control_hz = 5.0f;  // velocity-controller telemetry
+  float encoders_hz = 0.0f;  // 0 = off; optional EncoderTicks topic
+  float imu_hz = 0.0f;       // 0 = off; optional Imu topic
 };
 
 enum class DriveMode : uint8_t {
@@ -45,11 +47,14 @@ using CmdHandler = void (*)(const char* op, JsonVariantConst value, void* user);
 
 /**
  * Tick provider for encoders / IMU — robot or factory supplies these.
- * Return false from readYawRate if IMU unavailable (odometry uses encoders).
+ * Return false from readYawRate / readImu if IMU unavailable.
  */
 struct MobileBaseSensors {
   void (*readTicks)(int32_t* left, int32_t* right, void* user) = nullptr;
   bool (*readYawRate)(float* yaw_rad_s, void* user) = nullptr;
+  /** Optional 6-axis sample: accel m/s², gyro rad/s. Used for imu topic. */
+  bool (*readImu)(float* ax, float* ay, float* az, float* gx, float* gy,
+                  float* gz, void* user) = nullptr;
   void (*onZeroPose)(void* user) = nullptr;  // e.g. clear encoders + recal IMU
   void* user = nullptr;
 };
@@ -147,6 +152,8 @@ class MobileBase {
   void publishPose_();
   void publishPresence_();
   void publishControl_();
+  void publishEncoders_();
+  void publishImu_();
   void lockCmd_();
   void unlockCmd_();
 
@@ -169,6 +176,8 @@ class MobileBase {
   int pub_presence_ = -1;
   int pub_control_ = -1;
   int pub_nav_result_ = -1;
+  int pub_encoders_ = -1;
+  int pub_imu_ = -1;
   bool ok_ = false;
   bool endpoints_ = false;
   bool gains_ops_registered_ = false;
@@ -184,6 +193,13 @@ class MobileBase {
   float last_meas_vel_[8] = {0};
   size_t last_n_ch_ = 0;
 
+  int32_t last_enc_left_ = 0;
+  int32_t last_enc_right_ = 0;
+  bool last_enc_valid_ = false;
+  float last_accel_[3] = {0, 0, 0};
+  float last_gyro_[3] = {0, 0, 0};
+  bool last_imu_ok_ = false;
+
   CommandState cmd_;
   void* cmd_mux_ = nullptr;
 
@@ -194,6 +210,8 @@ class MobileBase {
   unsigned long last_pose_ms_ = 0;
   unsigned long last_presence_ms_ = 0;
   unsigned long last_control_ms_ = 0;
+  unsigned long last_encoders_ms_ = 0;
+  unsigned long last_imu_ms_ = 0;
 };
 
 }  // namespace rosie

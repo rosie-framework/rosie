@@ -77,17 +77,46 @@ def test_encoders_omit_and_present():
     raw = _base_mcu()
     hdr = generate_robot_config_h(RobotConfig(raw=raw))
     assert "#define ROSIE_HAS_ENCODERS 0" in hdr
+    assert "ROSIE_ENCODERS_PUB_HZ = 0.0f" in hdr
 
     raw2 = _base_mcu(
         encoders={
             "driver": "quad_encoder",
             "pins": {"left": [1, 2], "right": [3, 4]},
+            "pub_hz": 10,
         }
     )
     validate_robot_config(raw2)
     hdr2 = generate_robot_config_h(RobotConfig(raw=raw2))
     assert "#define ROSIE_HAS_ENCODERS 1" in hdr2
     assert "#define ROSIE_ENCODERS_QUAD_ENCODER 1" in hdr2
+    assert "ROSIE_ENCODERS_PUB_HZ = 10.0f" in hdr2
+
+
+def test_imu_pub_hz_codegen():
+    raw = _base_mcu(
+        imu={
+            "chip": "mpu6050",
+            "i2c": {"sda": 1, "scl": 2, "addr": 0x68},
+            "pub_hz": 10,
+        }
+    )
+    validate_robot_config(raw)
+    hdr = generate_robot_config_h(RobotConfig(raw=raw))
+    assert "#define ROSIE_HAS_IMU 1" in hdr
+    assert "ROSIE_IMU_PUB_HZ = 10.0f" in hdr
+
+
+def test_pub_hz_must_be_non_negative():
+    raw = _base_mcu(
+        encoders={
+            "driver": "quad_encoder",
+            "pins": {"left": [1, 2], "right": [3, 4]},
+            "pub_hz": -1,
+        }
+    )
+    with pytest.raises(ValueError, match="encoders.pub_hz"):
+        validate_robot_config(raw)
 
 
 def test_camera_esp32s3_eye_vs_custom():

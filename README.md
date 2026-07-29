@@ -9,24 +9,46 @@ from a normal laptop. Lightweight to install, low learning curve, and built so
 multi-robot teams are first-class whether each robot runs Rosie **natively** or
 uses another stack (e.g. ROS2) behind a thin **bridge**.
 
+It fills the gap between **general middleware** (ROS 2) and **facility fleet
+managers** (Open-RMF, FreeFleet): bring-up and operate a heterogeneous team in 
+minutes, without rewriting every robot or installing a
+robotics distro on the host.
+
+## What makes Rosie different
+
+1. **One fleet contract across backends** — Native MCU (`rosie mcu`), native
+   Linux (`rosie run`), and bridged ROS (`rosie agent`) are the same thing to
+   the laptop: an id under `{fleet}/{robot}/…`. Mix them freely; Rosie does not
+   require rewriting every robot.
+2. **Fleet identity is first-class** — Robot and fleet are real identity, not
+   topic prefixes or remaps. Presence, `fleet list` / `wait` / `estop`, and
+   fleet-scoped `topic` / `viz` / `bag` are built in. This is fleet *ops for
+   lab bring-up*, not warehouse task dispatch.
+3. **Minutes to a working bus on a normal laptop** — macOS, Linux, or Windows:
+   Zenoh + Python, no colcon, no Ubuntu robot PC for the host.
+4. **MCU is a first-class native citizen** — ESP32 firmware from `robot.yaml`
+   (zenoh-pico + DiffDriveStack), not Micro-ROS / DDS on a constrained board.
+
 ## Goals
 
-1. **Robot fleets are first-class** — robot and fleet are real identity (not
-   topic prefixes). Discover, wait, teleop, viz, and bag the whole team from
-   one laptop on a brokered bus. This is why Rosie exists.
-2. **Easy to get started** — low learning curve: `pip install`, one bus
-   (`rosie router`), one robot description file, a small CLI. Drive a car or
-   stand up a team in minutes without DDS, colcon, or an Ubuntu robot PC on
-   the laptop.
-3. **One fleet across backends** — MCU (ESP32 firmware), Linux robots (Pi /
-   Jetson), and host laptops (macOS, Linux, Windows). Robots join **natively**
-   (`robot.yaml` + firmware or `rosie run`) or via a **bridge** (`rosie agent`
-   in front of ROS 2 / another backend). Either way, a robot is just an id
-   under `{fleet}/{robot}/…` — same laptop tools for a heterogeneous team.
-   Membership spans those paths; Rosie does not require rewriting every robot.
-   Native vs bridge: [docs/robots/bridges.md](docs/robots/bridges.md).
+1. **Robot fleets are first-class** — discover, wait, teleop, viz, and bag the
+   whole team from one laptop on a brokered bus. This is why Rosie exists.
+2. **Easy to get started** — `pip install`, one bus (`rosie router`), one robot
+   description file, a small CLI.
+3. **One fleet across backends** — MCU, Linux, and ROS-bridged robots under the
+   same membership and tooling. Native vs bridge:
+   [docs/robots/bridges.md](docs/robots/bridges.md).
 
-Deeper “why Rosie”:
+## Where Rosie sits (and does not)
+
+| Layer | Examples | Rosie? |
+| ----- | -------- | ------ |
+| On-robot middleware & ecosystem | ROS 2, Nav2, MoveIt | No — **bridge** when you need it (`rosie agent`) |
+| Facility / warehouse fleet orchestration | Open-RMF, FreeFleet | No — different layer (tasks, traffic, doors/elevators) |
+| Lab / teaching **heterogeneous fleet bring-up** | Rosie | **Yes** — bus, identity, laptop tools, optional native stack |
+
+They compose: keep ROS (or RMF) on robots that need it; use Rosie for the shared
+fleet bus and laptop tooling. Deeper comparison:
 [docs/motivation.md](docs/motivation.md).
 
 ## Install
@@ -123,7 +145,7 @@ Index: [docs/README.md](docs/README.md).
 
 **Start here**
 
-- [Motivation](docs/motivation.md) — goals, Rosie vs ROS 2, native vs bridge
+- [Motivation](docs/motivation.md) — differentiators, vs ROS 2 / Open-RMF / FreeFleet, native vs bridge
 - [Getting started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
 - [Conventions](docs/conventions.md) — topics, robot/fleet identity, fleet robot contract

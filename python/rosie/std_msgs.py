@@ -229,3 +229,65 @@ class LeaderClaim:
     @classmethod
     def from_bytes(cls, raw: bytes | str) -> "LeaderClaim":
         return cls.from_dict(decode_json(raw))
+
+
+@dataclass
+class EncoderTicks:
+    stamp: float = 0.0
+    left: int = 0
+    right: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"stamp": float(self.stamp)}
+        d["left"] = self.left
+        d["right"] = self.right
+        return d
+
+    def to_bytes(self) -> bytes:
+        if self.stamp == 0.0:
+            self.stamp = stamp_now()
+        return encode_json(self.to_dict())
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "EncoderTicks":
+        return cls(stamp=float(d.get("stamp", 0.0)), left=d.get("left", 0), right=d.get("right", 0))
+
+    @classmethod
+    def from_bytes(cls, raw: bytes | str) -> "EncoderTicks":
+        return cls.from_dict(decode_json(raw))
+
+
+@dataclass
+class Imu:
+    stamp: float = 0.0
+    accel_x: float = 0.0
+    accel_y: float = 0.0
+    accel_z: float = 0.0
+    gyro_x: float = 0.0
+    gyro_y: float = 0.0
+    gyro_z: float = 0.0
+    ok: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"stamp": float(self.stamp)}
+        d["accel_x"] = self.accel_x
+        d["accel_y"] = self.accel_y
+        d["accel_z"] = self.accel_z
+        d["gyro_x"] = self.gyro_x
+        d["gyro_y"] = self.gyro_y
+        d["gyro_z"] = self.gyro_z
+        d["ok"] = self.ok
+        return d
+
+    def to_bytes(self) -> bytes:
+        if self.stamp == 0.0:
+            self.stamp = stamp_now()
+        return encode_json(self.to_dict())
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Imu":
+        return cls(stamp=float(d.get("stamp", 0.0)), accel_x=d.get("accel_x", 0.0), accel_y=d.get("accel_y", 0.0), accel_z=d.get("accel_z", 0.0), gyro_x=d.get("gyro_x", 0.0), gyro_y=d.get("gyro_y", 0.0), gyro_z=d.get("gyro_z", 0.0), ok=bool(d.get("ok", False)))
+
+    @classmethod
+    def from_bytes(cls, raw: bytes | str) -> "Imu":
+        return cls.from_dict(decode_json(raw))

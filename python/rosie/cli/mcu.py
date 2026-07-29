@@ -247,6 +247,7 @@ motors:
 encoders:
   driver: quad_encoder
   pins: {{ left: [41, 38], right: [39, 40] }}
+  # pub_hz: 10          # optional: publish EncoderTicks on encoders topic
 
 control:
   dt_ms: 20
@@ -276,6 +277,7 @@ control:
 #   i2c: {{ sda: 1, scl: 2, addr: 0x68 }}
 #   yaw_axis: 2
 #   yaw_sign: -1
+#   pub_hz: 10          # optional: publish Imu on imu topic
 # camera:
 #   board: esp32s3_eye
 #   jpeg_quality: 18

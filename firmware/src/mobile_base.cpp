@@ -1,3 +1,22 @@
+/**
+ * MobileBase — planar ground-robot application layer on Session.
+ *
+ * Typical call pattern (DiffDriveStack does this for you)::
+ *
+ *   begin(connect) → loop: spin()
+ *
+ * ``spin()`` polls Zenoh, runs ``tick()`` at ``dt_ms``, and publishes telemetry
+ * at configured rates. ``tick()`` is the control arbiter:
+ *
+ *   1. Read sensors → update odometry
+ *   2. Snapshot inbox (cmd_vel / goto / stop / zero) under a mutex
+ *   3. Apply mode transitions (Idle / Manual / Auto)
+ *   4. Drive motors (teleop deadman or cascaded goto)
+ *
+ * Zenoh callbacks only latch into ``cmd_``; actuation happens on the tick.
+ * See docs/robots/mobile-base.md for topics and YAML.
+ */
+
 #include "rosie/mobile_base.h"
 #include "rosie/diff_drive.h"
 
@@ -8,6 +27,10 @@
 
 namespace rosie {
 
+// ---------------------------------------------------------------------------
+// Construction / configuration
+// ---------------------------------------------------------------------------
+
 MobileBase::MobileBase(const MobileBaseConfig& cfg, MotorDriver& motors,
                        BaseKinematics& kinematics, const MobileBaseSensors& sensors)
     : cfg_(cfg),
@@ -15,6 +38,7 @@ MobileBase::MobileBase(const MobileBaseConfig& cfg, MotorDriver& motors,
       kinematics_(kinematics),
       sensors_(sensors),
       session_(cfg.robot ? cfg.robot : "robot", cfg.fleet) {
+  // Protects cmd_ between Zenoh callbacks (other tasks) and tick().
   cmd_mux_ = xSemaphoreCreateMutex();
 }
 
@@ -61,6 +85,7 @@ void MobileBase::resetVelocity_() {
 }
 
 void MobileBase::setUseImuHeading(bool on) {
+  // DiffDriveKinematics owns the IMU-vs-encoder heading flag today.
   auto* kin = static_cast<DiffDriveKinematics*>(&kinematics_);
   kin->setUseImuHeading(on);
 }
@@ -70,8 +95,13 @@ bool MobileBase::useImuHeading() const {
   return kin->useImuHeading();
 }
 
+// ---------------------------------------------------------------------------
+// Session bring-up and topic endpoints
+// ---------------------------------------------------------------------------
+
 bool MobileBase::begin(const char* connect_locator, const char* mode,
                        const char* user, const char* password) {
+  // Caller brings up Wi‑Fi first; we only open Zenoh + declare topics.
   if (!session_.ready()) {
     if (!session_.open(connect_locator, mode, user, password)) return false;
   }
@@ -83,6 +113,7 @@ bool MobileBase::begin(const char* connect_locator, const char* mode,
 
 bool MobileBase::ready() const { return ok_ && session_.ready(); }
 
+/** Declare standard MobileBase pubs/subs once (relative names → Session prefix). */
 void MobileBase::declareEndpoints_() {
   if (endpoints_) return;
   pub_pose_ = session_.createPublisher("pose");
@@ -91,12 +122,24 @@ void MobileBase::declareEndpoints_() {
   pub_presence_ = session_.createPublisher("presence");
   pub_control_ = session_.createPublisher("control");
   pub_nav_result_ = session_.createPublisher("nav_result");
+  // Optional raw telemetry — only when pub_hz > 0 (uses Session pub slots).
+  if (cfg_.encoders_hz > 0.1f) {
+    pub_encoders_ = session_.createPublisher("encoders");
+  }
+  if (cfg_.imu_hz > 0.1f) {
+    pub_imu_ = session_.createPublisher("imu");
+  }
   session_.createSubscription("cmd_vel", onCmdVel_, this);
   session_.createSubscription("goto", onGoto_, this);
   session_.createSubscription("cmd", onCmd_, this);
   endpoints_ = true;
 }
 
+// ---------------------------------------------------------------------------
+// Zenoh inbox callbacks — latch only; tick() actuates
+// ---------------------------------------------------------------------------
+
+/** Host teleop / manual Twist ``{v,w}`` → Manual mode on next tick. */
 void MobileBase::onCmdVel_(const uint8_t* data, size_t len, void* user) {
   auto* self = static_cast<MobileBase*>(user);
   char buf[128];
@@ -115,6 +158,7 @@ void MobileBase::onCmdVel_(const uint8_t* data, size_t len, void* user) {
   self->unlockCmd_();
 }
 
+/** Planar goal ``{x,y,goal_id?}`` → Auto navigation on next tick. */
 void MobileBase::onGoto_(const uint8_t* data, size_t len, void* user) {
   auto* self = static_cast<MobileBase*>(user);
   char buf[160];
@@ -139,6 +183,10 @@ void MobileBase::onGoto_(const uint8_t* data, size_t len, void* user) {
   self->unlockCmd_();
 }
 
+/**
+ * Discrete ``cmd`` ops. Built-ins: stop, zero.
+ * Other ops dispatch to handlers registered via onCmd() (e.g. set_gains).
+ */
 void MobileBase::onCmd_(const uint8_t* data, size_t len, void* user) {
   auto* self = static_cast<MobileBase*>(user);
   char buf[160];
@@ -168,6 +216,7 @@ void MobileBase::onCmd_(const uint8_t* data, size_t len, void* user) {
   }
 }
 
+/** Partial PID update ``{kp,ki,kd,i_clamp}`` then republish ``control``. */
 void MobileBase::onSetGains_(const char* /*op*/, JsonVariantConst value, void* user) {
   auto* self = static_cast<MobileBase*>(user);
   if (!self->vel_) {
@@ -192,6 +241,7 @@ void MobileBase::onSetGains_(const char* /*op*/, JsonVariantConst value, void* u
   self->publishControl_();
 }
 
+/** Ask robot to publish current gains / wheel velocities on ``control``. */
 void MobileBase::onGetGains_(const char* /*op*/, JsonVariantConst /*value*/, void* user) {
   auto* self = static_cast<MobileBase*>(user);
   if (!self->vel_) {
@@ -205,6 +255,10 @@ void MobileBase::onGetGains_(const char* /*op*/, JsonVariantConst /*value*/, voi
            g.kd, g.i_clamp);
   self->log("info", buf);
 }
+
+// ---------------------------------------------------------------------------
+// Local request API (USB shell, DiffDriveStack, tests) — same inbox as Zenoh
+// ---------------------------------------------------------------------------
 
 void MobileBase::requestStop() {
   lockCmd_();
@@ -237,6 +291,14 @@ void MobileBase::injectCmdVel(float v, float w) {
   unlockCmd_();
 }
 
+// ---------------------------------------------------------------------------
+// Actuation: body Twist → kinematics → optional wheel PID → motors
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared drive path for Manual and Auto.
+ * Feedforward channels always computed; VelocityController corrects when set.
+ */
 void MobileBase::driveTwist_(float v, float w) {
   float ff[8] = {0};
   float target[8] = {0};
@@ -266,6 +328,10 @@ void MobileBase::driveTwist_(float v, float w) {
 
 void MobileBase::teleopDrive_(float v, float w) { driveTwist_(v, w); }
 
+// ---------------------------------------------------------------------------
+// Auto mode: pose error → Twist (cascaded outer loop)
+// ---------------------------------------------------------------------------
+
 void MobileBase::publishNavResult_(const char* status) {
   if (pub_nav_result_ < 0) return;
   Pose2DState p = kinematics_.pose();
@@ -277,6 +343,7 @@ void MobileBase::publishNavResult_(const char* status) {
   session_.publishJson(pub_nav_result_, doc);
 }
 
+/** Terminal end of a goto: publish nav_result once, stop, return to Idle. */
 void MobileBase::endNavigation_(const char* status) {
   if (!navigating_) return;
   navigating_ = false;
@@ -286,6 +353,11 @@ void MobileBase::endNavigation_(const char* status) {
   resetVelocity_();
 }
 
+/**
+ * One Auto-mode control step toward (target_x_, target_y_).
+ * Succeeds within pos_tolerance (or past-goal near approach_dist).
+ * Linear speed gated by heading alignment (align_tol).
+ */
 void MobileBase::navigate_() {
   Pose2DState p = kinematics_.pose();
   float dx = target_x_ - p.x;
@@ -307,6 +379,7 @@ void MobileBase::navigate_() {
   while (heading_err > static_cast<float>(M_PI)) heading_err -= 2.0f * static_cast<float>(M_PI);
   while (heading_err < -static_cast<float>(M_PI)) heading_err += 2.0f * static_cast<float>(M_PI);
 
+  // Near the goal but pointing away — treat as arrived (avoid spinning in place).
   if (distance < g.approach_dist && fabsf(heading_err) > static_cast<float>(M_PI) * 0.5f) {
     char buf[96];
     snprintf(buf, sizeof(buf), "Arrived (past goal) at (%.3f, %.3f) m, heading %.1f deg", p.x, p.y,
@@ -333,12 +406,28 @@ void MobileBase::navigate_() {
   driveTwist_(v, w);
 }
 
+// ---------------------------------------------------------------------------
+// Control tick — odometry + command arbiter + mode behavior
+// ---------------------------------------------------------------------------
+
+/**
+ * One control period. Prefer calling via spin() so publish rates stay aligned.
+ *
+ * Order matters: sensors/odom first, then consume latched commands, then drive.
+ * Latest cmd_vel or goto preempts an in-progress navigation (canceled).
+ */
 void MobileBase::tick() {
+  // --- Sensors → odometry (+ cache for optional encoders/imu topics) ---
   int32_t ticks[8] = {0};
   size_t nch = kinematics_.channelCount();
   if (nch > 8) nch = 8;
   if (sensors_.readTicks) {
     sensors_.readTicks(&ticks[0], &ticks[1], sensors_.user);
+    last_enc_left_ = ticks[0];
+    last_enc_right_ = ticks[1];
+    last_enc_valid_ = true;
+  } else {
+    last_enc_valid_ = false;
   }
   float yaw = NAN;
   float dt = cfg_.dt_ms / 1000.0f;
@@ -346,8 +435,25 @@ void MobileBase::tick() {
     float yr = 0;
     if (sensors_.readYawRate(&yr, sensors_.user)) yaw = yr;
   }
+  if (sensors_.readImu) {
+    float ax, ay, az, gx, gy, gz;
+    if (sensors_.readImu(&ax, &ay, &az, &gx, &gy, &gz, sensors_.user)) {
+      last_accel_[0] = ax;
+      last_accel_[1] = ay;
+      last_accel_[2] = az;
+      last_gyro_[0] = gx;
+      last_gyro_[1] = gy;
+      last_gyro_[2] = gz;
+      last_imu_ok_ = true;
+    } else {
+      last_imu_ok_ = false;
+    }
+  } else {
+    last_imu_ok_ = false;
+  }
   kinematics_.updateOdometry(ticks, nch, dt, yaw);
 
+  // --- Snapshot + clear edge-triggered inbox flags ---
   CommandState snap;
   lockCmd_();
   snap = cmd_;
@@ -359,6 +465,7 @@ void MobileBase::tick() {
 
   DriveMode prev_mode = mode_;
 
+  // --- Apply discrete requests (stop / zero / goto / enter Manual) ---
   if (snap.stop_requested) {
     if (navigating_) {
       endNavigation_("canceled");
@@ -401,17 +508,20 @@ void MobileBase::tick() {
     mode_ = DriveMode::Manual;
   }
 
+  // Reset wheel PID integrators on Manual/Auto transitions.
   if (mode_ != prev_mode && (mode_ == DriveMode::Manual || mode_ == DriveMode::Auto ||
                              prev_mode == DriveMode::Manual || prev_mode == DriveMode::Auto)) {
     resetVelocity_();
   }
 
+  // --- Mode behavior ---
   switch (mode_) {
     case DriveMode::Auto:
       if (navigating_) navigate_();
       else mode_ = DriveMode::Idle;
       break;
     case DriveMode::Manual: {
+      // Deadman: stop if no fresh cmd_vel within teleop_timeout_ms.
       unsigned long age = millis() - snap.last_cmd_vel_ms;
       if (age > cfg_.teleop_timeout_ms) {
         motors_.stop();
@@ -429,6 +539,10 @@ void MobileBase::tick() {
   }
 }
 
+/**
+ * Arduino ``loop()`` entry: Zenoh poll + timed tick + telemetry publishers.
+ * Call frequently; rates come from MobileBaseConfig (*_hz / dt_ms).
+ */
 void MobileBase::spin() {
   session_.poll();
   unsigned long now = millis();
@@ -442,6 +556,10 @@ void MobileBase::spin() {
       cfg_.presence_hz > 0.1f ? (unsigned long)(1000.0f / cfg_.presence_hz) : 1000;
   unsigned long control_ms =
       cfg_.control_hz > 0.1f ? (unsigned long)(1000.0f / cfg_.control_hz) : 200;
+  unsigned long encoders_ms =
+      cfg_.encoders_hz > 0.1f ? (unsigned long)(1000.0f / cfg_.encoders_hz) : 0;
+  unsigned long imu_ms =
+      cfg_.imu_hz > 0.1f ? (unsigned long)(1000.0f / cfg_.imu_hz) : 0;
   if (ready() && (now - last_pose_ms_ >= pose_ms)) {
     last_pose_ms_ = now;
     publishPose_();
@@ -454,8 +572,23 @@ void MobileBase::spin() {
     last_control_ms_ = now;
     publishControl_();
   }
+  if (ready() && encoders_ms > 0 && last_enc_valid_ &&
+      (now - last_encoders_ms_ >= encoders_ms)) {
+    last_encoders_ms_ = now;
+    publishEncoders_();
+  }
+  if (ready() && imu_ms > 0 && sensors_.readImu &&
+      (now - last_imu_ms_ >= imu_ms)) {
+    last_imu_ms_ = now;
+    publishImu_();
+  }
 }
 
+// ---------------------------------------------------------------------------
+// Telemetry publishers (JSON via Session; stamp filled by publishJson)
+// ---------------------------------------------------------------------------
+
+/** Pose2D + MobileBase extras (mode, navigating, dist, imu flags, …). */
 void MobileBase::publishPose_() {
   if (pub_pose_ < 0) return;
   Pose2DState p = kinematics_.pose();
@@ -485,6 +618,7 @@ void MobileBase::publishPresence_() {
   session_.publishJson(pub_presence_, doc);
 }
 
+/** Velocity PID gains + last target/meas wheel velocities (when controller set). */
 void MobileBase::publishControl_() {
   if (pub_control_ < 0 || !vel_) return;
   VelocityGains g = vel_->gains();
@@ -501,6 +635,29 @@ void MobileBase::publishControl_() {
     meas.add(last_meas_vel_[i]);
   }
   session_.publishJson(pub_control_, doc);
+}
+
+/** Cumulative quadrature ticks (EncoderTicks); requires encoders_hz > 0. */
+void MobileBase::publishEncoders_() {
+  if (pub_encoders_ < 0 || !last_enc_valid_) return;
+  JsonDocument doc;
+  doc["left"] = last_enc_left_;
+  doc["right"] = last_enc_right_;
+  session_.publishJson(pub_encoders_, doc);
+}
+
+/** 6-axis Imu sample (m/s², rad/s); requires imu_hz > 0 and readImu hook. */
+void MobileBase::publishImu_() {
+  if (pub_imu_ < 0) return;
+  JsonDocument doc;
+  doc["accel_x"] = last_imu_ok_ ? last_accel_[0] : 0.0f;
+  doc["accel_y"] = last_imu_ok_ ? last_accel_[1] : 0.0f;
+  doc["accel_z"] = last_imu_ok_ ? last_accel_[2] : 0.0f;
+  doc["gyro_x"] = last_imu_ok_ ? last_gyro_[0] : 0.0f;
+  doc["gyro_y"] = last_imu_ok_ ? last_gyro_[1] : 0.0f;
+  doc["gyro_z"] = last_imu_ok_ ? last_gyro_[2] : 0.0f;
+  doc["ok"] = last_imu_ok_;
+  session_.publishJson(pub_imu_, doc);
 }
 
 void MobileBase::log(const char* level, const char* msg) {

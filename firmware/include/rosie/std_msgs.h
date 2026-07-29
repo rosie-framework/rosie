@@ -179,5 +179,58 @@ struct LeaderClaim {
   }
 };
 
+struct EncoderTicks {
+  double stamp = 0.0;
+  int32_t left = {};
+  int32_t right = {};
+
+  void toJson(JsonDocument& doc) const {
+    doc["stamp"] = stamp;
+    doc["left"] = left;
+    doc["right"] = right;
+  }
+
+  bool fromJson(JsonVariantConst doc) {
+    stamp = doc["stamp"] | 0.0;
+    left = doc["left"] | left;
+    right = doc["right"] | right;
+    return true;
+  }
+};
+
+struct Imu {
+  double stamp = 0.0;
+  float accel_x = {};
+  float accel_y = {};
+  float accel_z = {};
+  float gyro_x = {};
+  float gyro_y = {};
+  float gyro_z = {};
+  bool ok = {};
+
+  void toJson(JsonDocument& doc) const {
+    doc["stamp"] = stamp;
+    doc["accel_x"] = accel_x;
+    doc["accel_y"] = accel_y;
+    doc["accel_z"] = accel_z;
+    doc["gyro_x"] = gyro_x;
+    doc["gyro_y"] = gyro_y;
+    doc["gyro_z"] = gyro_z;
+    doc["ok"] = ok;
+  }
+
+  bool fromJson(JsonVariantConst doc) {
+    stamp = doc["stamp"] | 0.0;
+    accel_x = doc["accel_x"] | accel_x;
+    accel_y = doc["accel_y"] | accel_y;
+    accel_z = doc["accel_z"] | accel_z;
+    gyro_x = doc["gyro_x"] | gyro_x;
+    gyro_y = doc["gyro_y"] | gyro_y;
+    gyro_z = doc["gyro_z"] | gyro_z;
+    ok = doc["ok"] | ok;
+    return true;
+  }
+};
+
 }  // namespace msg
 }  // namespace rosie

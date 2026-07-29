@@ -40,7 +40,9 @@ Three questions, in order:
 
 ## Value Rosie adds even to ROS robots
 
-Bridging is not a downgrade — Rosie still owns the **fleet + laptop layer**:
+Bridging is not a downgrade — Rosie still owns the **fleet + laptop layer**,
+which is the gap ROS 2 namespaces and facility managers (Open-RMF / FreeFleet)
+do not fill for lab bring-up:
 
 - One brokered bus for a **heterogeneous team** (MCU cars + ROS robots together).
 - Fleet-scoped tooling from a laptop (macOS/Windows OK): `rosie fleet list/wait`,
@@ -48,9 +50,11 @@ Bridging is not a downgrade — Rosie still owns the **fleet + laptop layer**:
 - Uniform teleop / pose view / bags regardless of each robot's internals.
 - No ROS on the laptop; no DDS discovery across the fleet.
 
-ROS keeps owning **on-robot drivers and autonomy**; Rosie owns **coordination and
-introspection**. Interop at the edge — same philosophy as `rosie bag export`
-(MCAP) rather than reimplementing rosbag2.
+ROS keeps owning **on-robot drivers and autonomy**; facility orchestrators can
+still own **task/traffic** if you need them. Rosie owns **membership, bus, and
+laptop introspection**. Interop at the edge — same philosophy as `rosie bag
+export` (MCAP) rather than reimplementing rosbag2. See
+[Motivation](../motivation.md).
 
 ## Where ROS runs
 

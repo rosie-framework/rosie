@@ -32,15 +32,18 @@ compile time (`rosie mcu gen-config`). Linux `rosie run` selects at runtime.
 | `python` | linux | supported | BYO `EncoderReader` via `encoders.class` |
 
 Omit `encoders` on MCU or Linux for dead-reckoning odometry (commanded twist,
-optional IMU yaw).
+optional IMU yaw). Set `encoders.pub_hz` (e.g. `10`) to publish cumulative
+ticks on the `encoders` topic; omit or `0` keeps them onboard-only.
 
 ## IMU (`imu.chip`)
 
 | id | platforms | status | notes |
 |----|-----------|--------|-------|
-| `mpu6050` | mcu, linux | supported | Gyro yaw-rate for odometry fusion |
+| `mpu6050` | mcu, linux | supported | Accel + gyro; yaw-rate used for odometry fusion |
 | `python` | linux | supported | BYO `ImuReader` via `imu.class` |
 
+Set `imu.pub_hz` (e.g. `10`) to publish 6-axis samples (`accel_*` m/s²,
+`gyro_*` rad/s) on the `imu` topic; omit or `0` keeps them onboard-only.
 ## Camera (`camera.board`)
 
 | id | platforms | status | notes |

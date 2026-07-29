@@ -70,7 +70,7 @@ drivers:
   - id: mpu6050
     category: imu
     status: supported
-    description: MPU6050 gyro (yaw-rate fusion)
+    description: MPU6050 accel + gyro (yaw-rate fusion + optional 6-axis publish)
     yaml_key: imu.chip
     platforms: [mcu, linux]
     deps: []

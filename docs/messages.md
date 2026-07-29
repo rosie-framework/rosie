@@ -194,6 +194,46 @@ Fleet coordinator claim. Typical topic: `<fleet>/_fleet/coord/leader`.
 { "stamp": 1.0, "robot_id": "car1", "term": 1 }
 ```
 
+### EncoderTicks
+
+Cumulative quadrature ticks. Typical topic: `<robot>/encoders`.
+Opt-in via `encoders.pub_hz` in `robot.yaml` (omit or `0` = off).
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `stamp` | `f64` | Seconds (auto-filled when missing) |
+| `left` | `i32` | left wheel cumulative ticks |
+| `right` | `i32` | right wheel cumulative ticks |
+
+```json
+{ "stamp": 1.0, "left": 1204, "right": 1198 }
+```
+
+### Imu
+
+6-axis accel + gyro sample. Typical topic: `<robot>/imu`.
+Opt-in via `imu.pub_hz` in `robot.yaml` (omit or `0` = off).
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `stamp` | `f64` | Seconds (auto-filled when missing) |
+| `accel_x`, `accel_y`, `accel_z` | `f32` | linear acceleration (m/s²), body frame |
+| `gyro_x`, `gyro_y`, `gyro_z` | `f32` | angular rate (rad/s), body frame |
+| `ok` | `bool` | sensor healthy / last read succeeded |
+
+```json
+{
+  "stamp": 1.0,
+  "accel_x": 0.02,
+  "accel_y": -0.01,
+  "accel_z": 9.81,
+  "gyro_x": 0.1,
+  "gyro_y": -0.2,
+  "gyro_z": 0.05,
+  "ok": true
+}
+```
+
 ## Wire format notes
 
 - Structured msgs: UTF-8 JSON over Zenoh.

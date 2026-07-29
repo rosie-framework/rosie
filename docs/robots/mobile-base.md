@@ -187,6 +187,11 @@ motors:
 # encoders:               # optional; without them, pose is dead-reckoned
 #   driver: gpio_quadrature
 #   pins: { left: [17, 18], right: [22, 23] }
+#   pub_hz: 10            # optional: EncoderTicks on encoders topic
+# imu:
+#   chip: mpu6050
+#   i2c: { bus: 1, addr: 0x68 }
+#   pub_hz: 10            # optional: Imu on imu topic
 control:
   dt_ms: 20
   teleop: { timeout_ms: 400, kv: 180, kw: 40 }
@@ -202,7 +207,8 @@ rosie run --config robot.yaml
 ```
 
 The runtime mirrors firmware `MobileBase`: `cmd_vel`, `goto` / `nav_result`,
-`cmd` (`stop` / `zero`), `pose`, `presence`, teleop deadman. Laptop tools
+`cmd` (`stop` / `zero`), `pose`, `presence`, teleop deadman, and optional
+`encoders` / `imu` topics when `pub_hz` is set. Laptop tools
 (`teleop`, `viz`, `fleet`, `MobileRobot`) work unchanged.
 
 **BYO driver** (no `rosie-framework[linux]` needed):
@@ -226,6 +232,8 @@ not supported yet.
 | `cmd` | host → robot | `stop`, `zero`, `set_gains`, `get_gains`, plus custom ops |
 | `pose` | robot → host | `x,y,theta` plus `mode`, `navigating`, `dist`, `goal_id` while navigating |
 | `control` | robot → host | velocity gains + target/meas wheel vel (when controller attached) |
+| `encoders` | robot → host | cumulative ticks (`EncoderTicks`) when `encoders.pub_hz` set |
+| `imu` | robot → host | 6-axis `Imu` (`accel_*` m/s², `gyro_*` rad/s) when `imu.pub_hz` set |
 | `presence` | robot → host | heartbeat |
 | `log` | robot → host | status lines |
 | `camera/compressed` | robot → host | JPEG bytes (if camera in YAML) |

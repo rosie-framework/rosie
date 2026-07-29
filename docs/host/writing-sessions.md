@@ -2,7 +2,9 @@
 
 A **Session** is a process-local Zenoh handle bound to a **robot** (and optional
 **fleet**). Sensors and commands are **topics** under that robot—not separate
-sessions per driver.
+sessions per driver. Host tools each open their **own** Session (often with the
+same robot id) to publish into / subscribe from that namespace — see
+[Architecture → Bus, Session, Topic](../architecture.md#bus-session-topic).
 
 For MobileBase robots, prefer the higher-level **[`MobileRobot`](mobile-robot.md)**
 helper or the `rosie drive` CLI (see [Mobile base → Host](../robots/mobile-base.md#host)).

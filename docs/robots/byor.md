@@ -164,6 +164,10 @@ motors:
   driver: tb6612
   pins: { pwmA: 12, ain1: 5, ain2: 6, pwmB: 13, bin1: 20, bin2: 21 }
   pwm: { freq: 20000, min: 0.1, max: 1.0 }
+# encoders:
+#   driver: gpio_quadrature
+#   pins: { left: [17, 18], right: [22, 23] }
+#   pub_hz: 10
 control:
   dt_ms: 20
   teleop: { timeout_ms: 400 }

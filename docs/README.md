@@ -12,9 +12,11 @@
 
 - [Bring Your Own Robot](robots/byor.md) — native MCU / Linux bring-up
 - [Robots: native vs bridge](robots/bridges.md) — `rosie run` vs `rosie agent`
-- [Mobile base](robots/mobile-base.md) — `robot.yaml`, DiffDriveStack, Linux `rosie run`, topics
+- [Mobile base](robots/mobile-base.md) — shared contract, DiffDrive / `rosie run` topics
 - [Drivers](robots/drivers.md) — inventory (`rosie drivers list`)
-- [Firmware](robots/firmware.md) — MCU library / advanced Session
+- [Camera](robots/camera.md) — JPEG frames on `camera/compressed`, frame rate, host viewers
+- [Firmware](robots/firmware.md) — MCU DiffDriveStack / PlatformIO / advanced Session
+- [Linux run](robots/linux-run.md) — `rosie run`, Pi drivers, dry-run
 
 ## Host (laptop)
 

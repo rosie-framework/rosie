@@ -32,7 +32,7 @@ enum class Qos {
  */
 class Session {
  public:
-  static constexpr int kMaxPubs = 8;
+  static constexpr int kMaxPubs = 14;
   static constexpr int kMaxSubs = 8;
   static constexpr size_t kMaxKeyLen = 128;
 

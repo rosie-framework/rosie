@@ -58,7 +58,17 @@ def cmd_tune(args: argparse.Namespace) -> int:
                 i_clamp=float(args.i_clamp if args.i_clamp is not None else 0.5),
             )
         print(f"Wrote {out}")
-        print("Reflash to bake defaults: rosie mcu flash")
+        platform = "mcu"
+        try:
+            from rosie.robot_config import load_robot_config
+
+            platform = load_robot_config(config).platform
+        except Exception:
+            pass
+        if platform == "linux":
+            print("Restart `rosie run` to load saved defaults from YAML")
+        else:
+            print("Reflash to bake defaults: rosie mcu flash")
         return 0
 
     bot = MobileRobot(

@@ -5,11 +5,11 @@
    robot’s `robot.yaml`** — not hardcoded in Rosie. To add an MCU driver that
    `DiffDriveStack` can select: implement under
    `firmware/.../drivers/<category>/` (`motors` / `encoders` / `imu` /
-   `camera`), register it in `firmware/drivers/registry.yaml`
+   `camera` / `range`), register it in `firmware/drivers/registry.yaml`
    (`status: supported`), emit selection macros from
    `python/rosie/robot_config.py` (`gen-config`), add a `DiffDriveStack` `#if`
    branch, and document it in [docs/robots/drivers.md](docs/robots/drivers.md). Linux-only
-   drivers need `python/rosie/run/drivers/` + registry. A driver `.cpp` alone
+   drivers need `python/rosie/run/drivers/<category>/` + registry. A driver `.cpp` alone
    is not enough for stack selection.
 2. After editing `interfaces/std_msgs.yaml`, run `python3 interfaces/gen.py` and commit
    the generated files. Also update [docs/messages.md](docs/messages.md).

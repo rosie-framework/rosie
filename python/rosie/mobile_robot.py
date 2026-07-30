@@ -39,7 +39,8 @@ class MobileRobot:
     Navigation (topics only — see docs/robots/mobile-base.md):
       ``goto`` — publish a planar goal with ``goal_id`` (fire-and-forget)
       ``pose`` — progress (``navigating``, ``dist``, ``goal_id``)
-      ``nav_result`` — terminal outcome (``succeeded`` / ``canceled`` / ``aborted``)
+      ``nav_result`` — terminal outcome (``succeeded`` / ``canceled``;
+      ``aborted`` is reserved — hosts must tolerate it, robots do not emit it)
       ``drive_to`` — blocking helper: goto + wait for matching ``nav_result``
       ``drive_route`` — convenience: sequential ``drive_to`` (not a planner)
 

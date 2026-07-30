@@ -149,7 +149,7 @@ rosie run --config robot.yaml --dry-run   # validate
 rosie run --config robot.yaml             # control loop (foreground)
 ```
 
-Details and example YAML: [Mobile base → Linux native](mobile-base.md#linux-native-rosie-run).
+Details and example YAML: [Linux run](linux-run.md).
 BYO motors: `motors.driver: python` + `motors.class: mypkg:MyMotorDriver`.
 
 ## See also
@@ -157,5 +157,6 @@ BYO motors: `motors.driver: python` + `motors.class: mypkg:MyMotorDriver`.
 - [Conventions → Fleet robot contract](../conventions.md#fleet-robot-contract)
 - [Fleet networking](../fleet/networking.md)
 - [Bring Your Own Robot](byor.md) — native MCU / Linux bring-up
-- [Mobile base](mobile-base.md) — `robot.yaml`, MCU stack, `rosie run`
+- [Mobile base](mobile-base.md) — shared contract, topics, host tools
+- [Linux run](linux-run.md) — `rosie run` assembly
 - [Motivation](../motivation.md) — Rosie vs ROS 2

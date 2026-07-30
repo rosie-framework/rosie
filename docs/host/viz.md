@@ -36,6 +36,9 @@ publishes `camera_enable` on `cmd` when possible (same idea as
 `MobileRobot.camera_live`). In **bag** mode, frames already in the bag for the
 selected robot appear the same way.
 
+The 8 Hz here is a display throttle; the robot's own send rate is
+`camera.pub_hz` ([Camera](../robots/camera.md)).
+
 ## Bag scrub
 
 `rosie viz --bag path.rosiebag` loads records via the same reader/filters as

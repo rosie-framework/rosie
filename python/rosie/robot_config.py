@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,49 @@ from typing import Any
 SUPPORTED_BASE = frozenset({"diff_drive"})
 PLANNED_BASE = frozenset({"mecanum", "ackermann"})
 SUPPORTED_VELOCITY = frozenset({"pid"})
+
+# Canonical jpeg_quality is 0–100 (higher = better). MCU codegen translates
+# to esp_camera's 0–63 scale (lower = better). Default 70 ≈ esp 19.
+DEFAULT_JPEG_QUALITY = 70
+MAX_RANGE_SENSORS = 4
+RANGE_MEDIAN_WINDOW = 5
+RANGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+VL53_RANGE_CHIPS = frozenset({"vl53l0x", "vl53l1x"})
+# MCU codegen chip codes (must match DiffDriveStack).
+RANGE_CHIP_VL53L1X = 0
+RANGE_CHIP_VL53L0X = 1
+
+
+def _is_vl53_chip(chip: str) -> bool:
+    return chip in VL53_RANGE_CHIPS
+
+
+def default_range_limits(chip: str) -> tuple[float, float]:
+    """Return (min_range, max_range) meters for a chip when YAML omits them."""
+    if chip == "vl53l0x":
+        return 0.03, 2.0
+    return 0.04, 4.0
+
+
+def _default_range_limits(chip: str) -> tuple[float, float]:
+    return default_range_limits(chip)
+
+
+def _range_chip_code(chip: str) -> int:
+    if chip == "vl53l0x":
+        return RANGE_CHIP_VL53L0X
+    return RANGE_CHIP_VL53L1X  # default / vl53l1x
+
+
+
+def jpeg_quality_to_esp(q: float | int) -> int:
+    """Map canonical 0–100 (higher better) → esp_camera 0–63 (lower better).
+
+    Floors at 10: below that, esp_camera frames get huge and can fail to allocate.
+    """
+    qf = float(q)
+    return max(10, min(63, round(63 - qf * 63 / 100)))
+
 
 
 @dataclass
@@ -274,20 +318,55 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
 
     cam = raw.get("camera")
     if cam:
-        if platform == "linux":
-            raise ValueError(
-                "robot.yaml: camera is not supported on platform: linux yet"
-            )
-        board = str(cam.get("board", "esp32s3_eye"))
-        board = _resolve_id(board, entries, "camera")
-        _require_supported(entries, board, "camera", platform=platform)
-        if board == "custom":
-            pins = cam.get("pins")
-            if not isinstance(pins, dict) or not pins:
+        if not isinstance(cam, dict):
+            raise ValueError("robot.yaml: camera must be a mapping")
+        if "jpeg_quality" in cam:
+            try:
+                jq = float(cam["jpeg_quality"])
+            except (TypeError, ValueError) as e:
                 raise ValueError(
-                    "robot.yaml: camera.board=custom requires camera.pins mapping"
+                    "robot.yaml: camera.jpeg_quality must be a number"
+                ) from e
+            if jq < 0 or jq > 100:
+                raise ValueError(
+                    "robot.yaml: camera.jpeg_quality must be in 0..100 "
+                    "(higher = better quality; MCU codegen maps to esp_camera)"
                 )
+        if "pub_hz" in cam:
+            try:
+                chz = float(cam["pub_hz"])
+            except (TypeError, ValueError) as e:
+                raise ValueError("robot.yaml: camera.pub_hz must be a number") from e
+            if chz < 0:
+                raise ValueError("robot.yaml: camera.pub_hz must be >= 0")
+        if platform == "linux":
+            drv = str(cam.get("driver", "picamera2"))
+            drv = _resolve_id(drv, entries, "camera")
+            _require_supported(entries, drv, "camera", platform=platform)
+            if drv == "python" and not cam.get("class"):
+                raise ValueError("camera.driver=python requires camera.class")
+            for key in ("width", "height"):
+                if key in cam:
+                    try:
+                        dim = int(cam[key])
+                    except (TypeError, ValueError) as e:
+                        raise ValueError(
+                            f"robot.yaml: camera.{key} must be an integer"
+                        ) from e
+                    if dim <= 0:
+                        raise ValueError(f"robot.yaml: camera.{key} must be > 0")
+        else:
+            board = str(cam.get("board", "esp32s3_eye"))
+            board = _resolve_id(board, entries, "camera")
+            _require_supported(entries, board, "camera", platform=platform)
+            if board == "custom":
+                pins = cam.get("pins")
+                if not isinstance(pins, dict) or not pins:
+                    raise ValueError(
+                        "robot.yaml: camera.board=custom requires camera.pins mapping"
+                    )
 
+    _validate_range_section(raw, entries, platform=platform)
 
     control = raw.get("control") or {}
     velocity = control.get("velocity")
@@ -299,6 +378,129 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
             raise ValueError(
                 f"robot.yaml: control.velocity.type {vtype!r} is unsupported "
                 f"(v1 supports: {sorted(SUPPORTED_VELOCITY)})"
+            )
+
+
+def _deep_merge_dict(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for key, value in overlay.items():
+        if key in out and isinstance(out[key], dict) and isinstance(value, dict):
+            out[key] = _deep_merge_dict(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def normalize_range_sensors(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return per-sensor configs with shared range: defaults merged in.
+
+    Each item has ``id`` plus the sensor mapping fields (chip, i2c, …).
+    """
+    section = raw.get("range")
+    if not section:
+        return []
+    if not isinstance(section, dict):
+        raise ValueError("robot.yaml: range must be a mapping")
+    sensors = section.get("sensors")
+    if not isinstance(sensors, dict) or not sensors:
+        raise ValueError("robot.yaml: range.sensors must be a non-empty mapping")
+
+    shared = {k: v for k, v in section.items() if k != "sensors"}
+    out: list[dict[str, Any]] = []
+    for sid, cfg in sensors.items():
+        if not isinstance(cfg, dict):
+            raise ValueError(f"robot.yaml: range.sensors.{sid} must be a mapping")
+        merged = _deep_merge_dict(shared, cfg)
+        merged["id"] = str(sid)
+        out.append(merged)
+    return out
+
+
+def _validate_range_section(
+    raw: dict[str, Any],
+    entries: list[DriverEntry],
+    *,
+    platform: str,
+) -> None:
+    if not raw.get("range"):
+        return
+    sensors = normalize_range_sensors(raw)
+    if len(sensors) > MAX_RANGE_SENSORS:
+        raise ValueError(
+            f"robot.yaml: range.sensors supports at most {MAX_RANGE_SENSORS} "
+            f"sensors (got {len(sensors)})"
+        )
+
+    seen_ids: set[str] = set()
+    vl53_count = 0
+    addrs: list[int] = []
+    for sens in sensors:
+        sid = sens["id"]
+        if not RANGE_ID_RE.match(sid):
+            raise ValueError(
+                f"robot.yaml: range sensor id {sid!r} must match [A-Za-z0-9_-]+"
+            )
+        if sid in seen_ids:
+            raise ValueError(f"robot.yaml: duplicate range sensor id {sid!r}")
+        seen_ids.add(sid)
+
+        chip = str(sens.get("chip", "vl53l1x"))
+        chip = _resolve_id(chip, entries, "range")
+        _require_supported(entries, chip, "range", platform=platform)
+        if platform == "linux" and chip == "python" and not sens.get("class"):
+            raise ValueError(
+                f"range.sensors.{sid}: chip=python requires class"
+            )
+
+        if "pub_hz" in sens:
+            try:
+                hz = float(sens["pub_hz"])
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    f"robot.yaml: range.sensors.{sid}.pub_hz must be a number"
+                ) from e
+            if hz < 0:
+                raise ValueError(
+                    f"robot.yaml: range.sensors.{sid}.pub_hz must be >= 0"
+                )
+
+        for key in ("min_range", "max_range"):
+            if key in sens:
+                try:
+                    float(sens[key])
+                except (TypeError, ValueError) as e:
+                    raise ValueError(
+                        f"robot.yaml: range.sensors.{sid}.{key} must be a number"
+                    ) from e
+
+        if _is_vl53_chip(chip):
+            vl53_count += 1
+            i2c = sens.get("i2c") or {}
+            if not isinstance(i2c, dict):
+                raise ValueError(
+                    f"robot.yaml: range.sensors.{sid}.i2c must be a mapping"
+                )
+            addr = i2c.get("addr", 0x29)
+            try:
+                addrs.append(int(addr))
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    f"robot.yaml: range.sensors.{sid}.i2c.addr must be an int"
+                ) from e
+
+    if vl53_count > 1:
+        for sens in sensors:
+            chip = _resolve_id(str(sens.get("chip", "vl53l1x")), entries, "range")
+            if not _is_vl53_chip(chip):
+                continue
+            if sens.get("xshut") is None:
+                raise ValueError(
+                    f"robot.yaml: range.sensors.{sens['id']} requires xshut "
+                    "when multiple VL53 sensors share a bus"
+                )
+        if len(addrs) != len(set(addrs)):
+            raise ValueError(
+                "robot.yaml: range.sensors VL53 I2C addresses must be unique"
             )
 
 
@@ -501,6 +703,7 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
         f"static const float ROSIE_ALIGN_TOL = {_c_float(goto.get('align_tol', 0.52))};",
         f"static const float ROSIE_POSE_HZ = {_c_float(control.get('pose_hz', 20))};",
         f"static const float ROSIE_PRESENCE_HZ = {_c_float(control.get('presence_hz', 1))};",
+        f"static const float ROSIE_CONTROL_HZ = {_c_float(control.get('control_hz', 5))};",
         "",
         f"static const float ROSIE_VEL_KP = {_c_float(velocity.get('kp', 0.0))};",
         f"static const float ROSIE_VEL_KI = {_c_float(velocity.get('ki', 0.0))};",
@@ -532,10 +735,18 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
             "static const float ROSIE_IMU_PUB_HZ = 0.0f;",
         ]
 
+    jpeg_q = cam.get("jpeg_quality", DEFAULT_JPEG_QUALITY)
+    try:
+        jpeg_q_f = float(jpeg_q)
+    except (TypeError, ValueError):
+        jpeg_q_f = float(DEFAULT_JPEG_QUALITY)
+    esp_jpeg_q = jpeg_quality_to_esp(jpeg_q_f)
+
     lines += [
         "",
         f"#define ROSIE_HAS_CAMERA {1 if has_camera else 0}",
-        f"static const int ROSIE_CAMERA_JPEG_QUALITY = {_c_int(cam.get('jpeg_quality', 18))};",
+        # Canonical yaml is 0–100 higher-better; esp_camera wants 0–63 lower-better.
+        f"static const int ROSIE_CAMERA_JPEG_QUALITY = {esp_jpeg_q};",
         f"static const float ROSIE_CAMERA_PUB_HZ = {_c_float(cam.get('pub_hz', 2))};",
         f"static const bool ROSIE_CAMERA_ENABLE_DEFAULT = {'true' if cam.get('enable_default', True) else 'false'};",
     ]
@@ -566,6 +777,112 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
     else:
         lines.append("static const char* ROSIE_CAMERA_BOARD = nullptr;")
 
+    # --- range / ToF -------------------------------------------------
+    range_sensors: list[dict[str, Any]] = []
+    try:
+        range_sensors = normalize_range_sensors(r) if r.get("range") else []
+    except ValueError:
+        range_sensors = []
+    has_range = bool(range_sensors)
+    lines += [
+        "",
+        f"#define ROSIE_HAS_RANGE {1 if has_range else 0}",
+        f"#define ROSIE_MAX_RANGE_SENSORS {MAX_RANGE_SENSORS}",
+        f"#define ROSIE_RANGE_MEDIAN_WINDOW {RANGE_MEDIAN_WINDOW}",
+        f"static const int ROSIE_RANGE_COUNT = {len(range_sensors)};",
+    ]
+    if has_range:
+        # Shared bus pins: first sensor's i2c, else top-level range.i2c, else IMU defaults.
+        top_i2c = (r.get("range") or {}).get("i2c") or {}
+        first_i2c = (range_sensors[0].get("i2c") or {}) if range_sensors else {}
+        sda = first_i2c.get("sda", top_i2c.get("sda", 1))
+        scl = first_i2c.get("scl", top_i2c.get("scl", 2))
+        chips_used = {
+            str(s.get("chip", "vl53l1x")).lower() for s in range_sensors
+        }
+        lines += [
+            f"static const int ROSIE_RANGE_SDA = {_c_int(sda)};",
+            f"static const int ROSIE_RANGE_SCL = {_c_int(scl)};",
+            f"#define ROSIE_RANGE_CHIP_VL53L1X {RANGE_CHIP_VL53L1X}",
+            f"#define ROSIE_RANGE_CHIP_VL53L0X {RANGE_CHIP_VL53L0X}",
+            f"#define ROSIE_RANGE_VL53L1X {1 if 'vl53l1x' in chips_used else 0}",
+            f"#define ROSIE_RANGE_VL53L0X {1 if 'vl53l0x' in chips_used else 0}",
+        ]
+        ids = []
+        addrs = []
+        xshuts = []
+        pub_hzs = []
+        mins = []
+        maxs = []
+        chips = []
+        for i in range(MAX_RANGE_SENSORS):
+            if i < len(range_sensors):
+                sens = range_sensors[i]
+                chip = str(sens.get("chip", "vl53l1x")).lower()
+                dmin, dmax = _default_range_limits(chip)
+                i2c = sens.get("i2c") or {}
+                ids.append(_c_str(str(sens["id"])))
+                addrs.append(_c_int(i2c.get("addr", 0x29)))
+                xshuts.append(_c_int(sens.get("xshut", -1)))
+                pub_hzs.append(_c_float(sens.get("pub_hz", 10)))
+                mins.append(_c_float(sens.get("min_range", dmin)))
+                maxs.append(_c_float(sens.get("max_range", dmax)))
+                chips.append(str(_range_chip_code(chip)))
+            else:
+                ids.append("nullptr")
+                addrs.append("0")
+                xshuts.append("-1")
+                pub_hzs.append("0.0f")
+                mins.append("0.04f")
+                maxs.append("4.0f")
+                chips.append(str(RANGE_CHIP_VL53L1X))
+        lines += [
+            "static const char* const ROSIE_RANGE_IDS[ROSIE_MAX_RANGE_SENSORS] = {"
+            + ", ".join(ids)
+            + "};",
+            "static const uint8_t ROSIE_RANGE_ADDRS[ROSIE_MAX_RANGE_SENSORS] = {"
+            + ", ".join(addrs)
+            + "};",
+            "static const int ROSIE_RANGE_XSHUTS[ROSIE_MAX_RANGE_SENSORS] = {"
+            + ", ".join(xshuts)
+            + "};",
+            "static const float ROSIE_RANGE_PUB_HZ[ROSIE_MAX_RANGE_SENSORS] = {"
+            + ", ".join(pub_hzs)
+            + "};",
+            "static const float ROSIE_RANGE_MIN_M[ROSIE_MAX_RANGE_SENSORS] = {"
+            + ", ".join(mins)
+            + "};",
+            "static const float ROSIE_RANGE_MAX_M[ROSIE_MAX_RANGE_SENSORS] = {"
+            + ", ".join(maxs)
+            + "};",
+            "static const uint8_t ROSIE_RANGE_CHIPS[ROSIE_MAX_RANGE_SENSORS] = {"
+            + ", ".join(chips)
+            + "};",
+        ]
+    else:
+        lines += [
+            "static const int ROSIE_RANGE_SDA = 0;",
+            "static const int ROSIE_RANGE_SCL = 0;",
+            f"#define ROSIE_RANGE_CHIP_VL53L1X {RANGE_CHIP_VL53L1X}",
+            f"#define ROSIE_RANGE_CHIP_VL53L0X {RANGE_CHIP_VL53L0X}",
+            "#define ROSIE_RANGE_VL53L1X 0",
+            "#define ROSIE_RANGE_VL53L0X 0",
+            "static const char* const ROSIE_RANGE_IDS[ROSIE_MAX_RANGE_SENSORS] = "
+            "{nullptr, nullptr, nullptr, nullptr};",
+            "static const uint8_t ROSIE_RANGE_ADDRS[ROSIE_MAX_RANGE_SENSORS] = "
+            "{0, 0, 0, 0};",
+            "static const int ROSIE_RANGE_XSHUTS[ROSIE_MAX_RANGE_SENSORS] = "
+            "{-1, -1, -1, -1};",
+            "static const float ROSIE_RANGE_PUB_HZ[ROSIE_MAX_RANGE_SENSORS] = "
+            "{0.0f, 0.0f, 0.0f, 0.0f};",
+            "static const float ROSIE_RANGE_MIN_M[ROSIE_MAX_RANGE_SENSORS] = "
+            "{0.04f, 0.04f, 0.04f, 0.04f};",
+            "static const float ROSIE_RANGE_MAX_M[ROSIE_MAX_RANGE_SENSORS] = "
+            "{4.0f, 4.0f, 4.0f, 4.0f};",
+            "static const uint8_t ROSIE_RANGE_CHIPS[ROSIE_MAX_RANGE_SENSORS] = "
+            "{0, 0, 0, 0};",
+        ]
+
     lines.append("")
     return "\n".join(lines)
 
@@ -576,6 +893,25 @@ def write_robot_config_h(cfg: RobotConfig, project_dir: str | Path) -> Path:
     out = out_dir / "robot_config.h"
     out.write_text(generate_robot_config_h(cfg), encoding="utf-8")
     return out
+
+
+def warn_jpeg_quality_scale(cfg: RobotConfig) -> str | None:
+    """Return a migration warning if jpeg_quality looks like the old esp scale."""
+    cam = cfg.raw.get("camera") or {}
+    if not cam or "jpeg_quality" not in cam:
+        return None
+    try:
+        jq = float(cam["jpeg_quality"])
+    except (TypeError, ValueError):
+        return None
+    if jq < 30:
+        return (
+            f"warning: camera.jpeg_quality={jq:g} looks like the old esp_camera "
+            "scale (lower=better). Canonical scale is now 0–100 higher=better "
+            f"(default {DEFAULT_JPEG_QUALITY}). Suggest ~70; codegen maps to "
+            f"esp_camera={jpeg_quality_to_esp(jq)}."
+        )
+    return None
 
 
 def format_drivers_list(

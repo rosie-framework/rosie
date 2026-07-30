@@ -104,6 +104,17 @@ bool MobileBase::useImuHeading() const {
   return kin->useImuHeading();
 }
 
+bool MobileBase::addRangeSensor(const MobileBaseRangeSensor& sensor) {
+  if (n_ranges_ >= kMaxRangeSensors) return false;
+  if (!sensor.id || !sensor.id[0] || !sensor.readRangeM) return false;
+  if (endpoints_) return false;  // must register before begin()
+  ranges_[n_ranges_].sens = sensor;
+  snprintf(ranges_[n_ranges_].topic, sizeof(ranges_[n_ranges_].topic),
+           "range/%s", sensor.id);
+  n_ranges_++;
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Session bring-up and topic endpoints
 // ---------------------------------------------------------------------------
@@ -138,6 +149,12 @@ void MobileBase::declareEndpoints_() {
   }
   if (cfg_.imu_hz > 0.1f) {
     pub_imu_ = session_.createPublisher("imu", Qos::Stream);
+  }
+  for (int i = 0; i < n_ranges_; i++) {
+    if (ranges_[i].sens.pub_hz > 0.1f) {
+      ranges_[i].pub =
+          session_.createPublisher(ranges_[i].topic, Qos::Stream);
+    }
   }
   session_.createSubscription("cmd_vel", onCmdVel_, this);
   session_.createSubscription("goto", onGoto_, this);
@@ -642,6 +659,15 @@ void MobileBase::spin() {
     last_imu_ms_ = now;
     publishImu_();
   }
+  for (int i = 0; i < n_ranges_; i++) {
+    float hz = ranges_[i].sens.pub_hz;
+    if (!ready() || hz <= 0.1f || ranges_[i].pub < 0) continue;
+    unsigned long period = (unsigned long)(1000.0f / hz);
+    if (now - ranges_[i].last_ms >= period) {
+      ranges_[i].last_ms = now;
+      publishRange_(i);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -718,6 +744,28 @@ void MobileBase::publishImu_() {
   doc["gyro_z"] = last_imu_ok_ ? last_gyro_[2] : 0.0f;
   doc["ok"] = last_imu_ok_;
   session_.publishJson(pub_imu_, doc);
+}
+
+/** Named ToF sample on range/<id>; updates median-of-5 on successful reads. */
+void MobileBase::publishRange_(int idx) {
+  if (idx < 0 || idx >= n_ranges_) return;
+  RangeSlot& slot = ranges_[idx];
+  if (slot.pub < 0 || !slot.sens.readRangeM) return;
+  float raw = 0.0f;
+  bool ok = slot.sens.readRangeM(&raw, slot.sens.user);
+  slot.last_ok = ok;
+  if (ok) {
+    slot.last_raw = raw;
+    slot.last_median = slot.filter.push(raw);
+  }
+  JsonDocument doc;
+  doc["id"] = slot.sens.id;
+  doc["range"] = slot.last_raw;
+  doc["range_median"] = slot.last_median;
+  doc["min_range"] = slot.sens.min_range;
+  doc["max_range"] = slot.sens.max_range;
+  doc["ok"] = slot.last_ok;
+  session_.publishJson(slot.pub, doc);
 }
 
 void MobileBase::log(const char* level, const char* msg) {

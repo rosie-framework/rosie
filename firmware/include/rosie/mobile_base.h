@@ -2,6 +2,7 @@
 
 #include "rosie/base_kinematics.h"
 #include "rosie/motor_driver.h"
+#include "rosie/range_filter.h"
 #include "rosie/session.h"
 #include "rosie/velocity_controller.h"
 
@@ -59,6 +60,16 @@ struct MobileBaseSensors {
   void* user = nullptr;
 };
 
+/** One named ToF / range sensor registered with MobileBase. */
+struct MobileBaseRangeSensor {
+  const char* id = nullptr;
+  bool (*readRangeM)(float* range_m, void* user) = nullptr;
+  void* user = nullptr;
+  float pub_hz = 10.0f;
+  float min_range = 0.04f;
+  float max_range = 4.0f;
+};
+
 /**
  * Ground mobile-base application layer on Session.
  *
@@ -72,10 +83,19 @@ struct MobileBaseSensors {
  */
 class MobileBase {
  public:
+  static constexpr int kMaxRangeSensors = 4;
+  static constexpr int kRangeMedianWindow = 5;
+
   MobileBase(const MobileBaseConfig& cfg, MotorDriver& motors,
              BaseKinematics& kinematics, const MobileBaseSensors& sensors = {});
 
   void setSensors(const MobileBaseSensors& sensors) { sensors_ = sensors; }
+
+  /**
+   * Register a named range sensor (topic ``range/<id>``). Call before begin().
+   * Returns false if the table is full or id/read is missing.
+   */
+  bool addRangeSensor(const MobileBaseRangeSensor& sensor);
 
   /**
    * Attach inner-loop velocity controller (teleop + goto share driveTwist_).
@@ -150,6 +170,17 @@ class MobileBase {
     bool cmd_vel_seen = false;
   };
 
+  struct RangeSlot {
+    MobileBaseRangeSensor sens;
+    int pub = -1;
+    char topic[48] = {0};
+    MedianWindow<kRangeMedianWindow> filter;
+    float last_raw = 0;
+    float last_median = 0;
+    bool last_ok = false;
+    unsigned long last_ms = 0;
+  };
+
   void declareEndpoints_();
   void navigate_();
   void driveTwist_(float v, float w);
@@ -162,6 +193,7 @@ class MobileBase {
   void publishControl_();
   void publishEncoders_();
   void publishImu_();
+  void publishRange_(int idx);
   void lockCmd_();
   void unlockCmd_();
 
@@ -207,6 +239,9 @@ class MobileBase {
   float last_accel_[3] = {0, 0, 0};
   float last_gyro_[3] = {0, 0, 0};
   bool last_imu_ok_ = false;
+
+  RangeSlot ranges_[kMaxRangeSensors];
+  int n_ranges_ = 0;
 
   CommandState cmd_;
   void* cmd_mux_ = nullptr;

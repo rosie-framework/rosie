@@ -64,6 +64,10 @@
 #define ROSIE_HAS_CAMERA 0
 #endif
 
+#ifndef ROSIE_HAS_RANGE
+#define ROSIE_HAS_RANGE 0
+#endif
+
 #ifndef ROSIE_ENCODERS_PUB_HZ
 #define ROSIE_ENCODERS_PUB_HZ 0.0f
 #endif
@@ -110,6 +114,23 @@
 
 #if ROSIE_HAS_CAMERA
 #include "rosie/drivers/camera/esp32_camera.h"
+#endif
+
+#if ROSIE_HAS_RANGE
+#include "rosie/drivers/range/vl53l0x.h"
+#include "rosie/drivers/range/vl53l1x.h"
+#ifndef ROSIE_MAX_RANGE_SENSORS
+#define ROSIE_MAX_RANGE_SENSORS 4
+#endif
+#ifndef ROSIE_RANGE_COUNT
+#define ROSIE_RANGE_COUNT 0
+#endif
+#ifndef ROSIE_RANGE_CHIP_VL53L1X
+#define ROSIE_RANGE_CHIP_VL53L1X 0
+#endif
+#ifndef ROSIE_RANGE_CHIP_VL53L0X
+#define ROSIE_RANGE_CHIP_VL53L0X 1
+#endif
 #endif
 
 #include <string.h>
@@ -246,6 +267,66 @@ class DiffDriveStack {
     }
 #endif
 
+#if ROSIE_HAS_RANGE
+    {
+      // Multi-drop: hold every XSHUT low, then bring up one-by-one.
+      for (int i = 0; i < ROSIE_RANGE_COUNT; i++) {
+        if (ROSIE_RANGE_XSHUTS[i] >= 0) {
+          pinMode(ROSIE_RANGE_XSHUTS[i], OUTPUT);
+          digitalWrite(ROSIE_RANGE_XSHUTS[i], LOW);
+        }
+      }
+      delay(10);
+#if ROSIE_HAS_IMU
+      bool wire_begun = true;  // IMU already called Wire.begin
+#else
+      bool wire_begun = false;
+#endif
+      for (int i = 0; i < ROSIE_RANGE_COUNT; i++) {
+        if (!ROSIE_RANGE_IDS[i]) continue;
+        range_users_[i] = {this, i};
+        bool ok = false;
+        const uint8_t chip = ROSIE_RANGE_CHIPS[i];
+        if (chip == ROSIE_RANGE_CHIP_VL53L0X) {
+          Vl53l0xConfig rc;
+          rc.addr = ROSIE_RANGE_ADDRS[i];
+          rc.xshut = ROSIE_RANGE_XSHUTS[i];
+          rc.sda = ROSIE_RANGE_SDA;
+          rc.scl = ROSIE_RANGE_SCL;
+          rc.begin_wire = !wire_begun;
+          ranges_l0_[i].configure(rc);
+          ok = ranges_l0_[i].begin();
+        } else {
+          Vl53l1xConfig rc;
+          rc.addr = ROSIE_RANGE_ADDRS[i];
+          rc.xshut = ROSIE_RANGE_XSHUTS[i];
+          rc.sda = ROSIE_RANGE_SDA;
+          rc.scl = ROSIE_RANGE_SCL;
+          rc.begin_wire = !wire_begun;
+          ranges_l1_[i].configure(rc);
+          ok = ranges_l1_[i].begin();
+        }
+        if (ok) {
+          wire_begun = true;
+          MobileBaseRangeSensor slot;
+          slot.id = ROSIE_RANGE_IDS[i];
+          slot.readRangeM = readRange_;
+          slot.user = &range_users_[i];
+          slot.pub_hz = ROSIE_RANGE_PUB_HZ[i];
+          slot.min_range = ROSIE_RANGE_MIN_M[i];
+          slot.max_range = ROSIE_RANGE_MAX_M[i];
+          if (base_.addRangeSensor(slot)) {
+            Serial.printf("Range '%s' ready (addr=0x%02X).\n",
+                          ROSIE_RANGE_IDS[i], (unsigned)ROSIE_RANGE_ADDRS[i]);
+          }
+        } else {
+          Serial.printf("Range '%s' init failed — continuing without it.\n",
+                        ROSIE_RANGE_IDS[i]);
+        }
+      }
+    }
+#endif
+
     bool net_ok = false;
     if (strcmp(ROSIE_NETWORK_MODE, "station") == 0) {
       net_ok = wifiStation(ROSIE_WIFI_SSID, ROSIE_WIFI_PASSWORD);
@@ -303,6 +384,7 @@ class DiffDriveStack {
     c.goto_gains.align_tol = ROSIE_ALIGN_TOL;
     c.pose_hz = ROSIE_POSE_HZ;
     c.presence_hz = ROSIE_PRESENCE_HZ;
+    c.control_hz = ROSIE_CONTROL_HZ;
     c.encoders_hz = ROSIE_ENCODERS_PUB_HZ;
     c.imu_hz = ROSIE_IMU_PUB_HZ;
     return c;
@@ -367,6 +449,26 @@ class DiffDriveStack {
   }
 #endif
 
+#if ROSIE_HAS_RANGE
+  struct RangeUser {
+    DiffDriveStack* self = nullptr;
+    int idx = 0;
+  };
+
+  static bool readRange_(float* range_m, void* user) {
+    auto* u = static_cast<RangeUser*>(user);
+    if (!u || !u->self) return false;
+    const int i = u->idx;
+    if (i < 0 || i >= ROSIE_MAX_RANGE_SENSORS) return false;
+    if (ROSIE_RANGE_CHIPS[i] == ROSIE_RANGE_CHIP_VL53L0X) {
+      return u->self->ranges_l0_[i].ok() &&
+             u->self->ranges_l0_[i].readRangeM(range_m);
+    }
+    return u->self->ranges_l1_[i].ok() &&
+           u->self->ranges_l1_[i].readRangeM(range_m);
+  }
+#endif
+
   static void motorTest_(MobileBase& base, void* /*user*/) {
     base.requestStop();
     float fwd[2] = {1.0f, 0.0f};
@@ -425,6 +527,11 @@ class DiffDriveStack {
   PidVelocityController vel_;
 #if ROSIE_HAS_CAMERA
   Esp32Camera* cam_ = nullptr;
+#endif
+#if ROSIE_HAS_RANGE
+  Vl53l1x ranges_l1_[ROSIE_MAX_RANGE_SENSORS];
+  Vl53l0x ranges_l0_[ROSIE_MAX_RANGE_SENSORS];
+  RangeUser range_users_[ROSIE_MAX_RANGE_SENSORS];
 #endif
   MobileBaseConfig cfg_;
   MobileBaseSensors sensors_;

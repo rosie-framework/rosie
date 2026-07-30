@@ -71,6 +71,12 @@ class GpioQuadratureEncoder:
         with self._lock:
             return int(self._ticks[0]), int(self._ticks[1])
 
+    def zero(self) -> None:
+        """Clear cumulative tick counters (pose zero hook)."""
+        with self._lock:
+            self._ticks = [0, 0]
+            self._last = [0, 0]
+
     def close(self) -> None:
         for cid in self._cb_ids:
             try:

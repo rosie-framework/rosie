@@ -116,7 +116,12 @@ def _run_pio(
 def _maybe_gen_config(project_dir: Path) -> None:
     """If robot.yaml exists, sync host secret when resolvable, then regenerate header."""
     from rosie.auth import maybe_sync_secret_for_robot_config
-    from rosie.robot_config import find_robot_yaml, load_robot_config, write_robot_config_h
+    from rosie.robot_config import (
+        find_robot_yaml,
+        load_robot_config,
+        warn_jpeg_quality_scale,
+        write_robot_config_h,
+    )
 
     yml = find_robot_yaml(project_dir)
     if not yml:
@@ -128,6 +133,9 @@ def _maybe_gen_config(project_dir: Path) -> None:
             cfg = load_robot_config(yml)
         out = write_robot_config_h(cfg, project_dir)
         print(f"Generated {out} from {yml.name}")
+        warn = warn_jpeg_quality_scale(cfg)
+        if warn:
+            print(warn, file=sys.stderr)
     except Exception as e:
         print(f"error: robot.yaml codegen failed: {e}", file=sys.stderr)
         raise SystemExit(2) from e
@@ -136,7 +144,12 @@ def _maybe_gen_config(project_dir: Path) -> None:
 def cmd_gen_config(args: argparse.Namespace) -> int:
     cwd = Path(args.dir).expanduser().resolve()
     from rosie.auth import maybe_sync_secret_for_robot_config
-    from rosie.robot_config import find_robot_yaml, load_robot_config, write_robot_config_h
+    from rosie.robot_config import (
+        find_robot_yaml,
+        load_robot_config,
+        warn_jpeg_quality_scale,
+        write_robot_config_h,
+    )
 
     yml = Path(args.file).expanduser().resolve() if args.file else find_robot_yaml(cwd)
     if not yml or not yml.is_file():
@@ -148,6 +161,9 @@ def cmd_gen_config(args: argparse.Namespace) -> int:
         cfg = load_robot_config(yml)
     out = write_robot_config_h(cfg, cwd)
     print(f"Wrote {out}")
+    warn = warn_jpeg_quality_scale(cfg)
+    if warn:
+        print(warn, file=sys.stderr)
     return 0
 
 
@@ -270,6 +286,7 @@ control:
     i_clamp: 0.5
   pose_hz: 20
   presence_hz: 1
+  # control_hz: 5        # optional: VelocityController telemetry rate
 
 # Optional — uncomment / edit as needed:
 # imu:
@@ -280,9 +297,25 @@ control:
 #   pub_hz: 10          # optional: publish Imu on imu topic
 # camera:
 #   board: esp32s3_eye
-#   jpeg_quality: 18
+#   # 0–100, higher = better. MCU codegen maps this to esp_camera's 0–63
+#   # (lower = better) scale. Default 70 ≈ old esp default of 18.
+#   jpeg_quality: 70
 #   pub_hz: 2
 #   enable_default: true
+# range:
+#   i2c: {{ sda: 1, scl: 2 }}   # shared bus (often same as IMU)
+#   pub_hz: 10
+#   min_range: 0.04
+#   max_range: 4.0
+#   sensors:
+#     front:
+#       chip: vl53l1x
+#       i2c: {{ addr: 0x29 }}
+#       # xshut: 7             # required when >1 VL53 on the bus
+#     # front_right:
+#     #   chip: vl53l0x       # also supported
+#     #   i2c: {{ addr: 0x30 }}
+#     #   xshut: 8
 """
     yml_path.write_text(yml, encoding="utf-8")
     print(f"Wrote {yml_path}")

@@ -1,15 +1,15 @@
 # Firmware (MCU / PlatformIO)
 
-Rosie firmware is a **PlatformIO / Arduino library** aimed at ESP32 today, with
-the same tooling path available for other PlatformIO MCUs later (RP2040, STM32,
-…). SoftAP Wi‑Fi helper code is ESP32-specific and **optional** (solo-robot
-fallback). Fleets should join a dedicated AP as Wi‑Fi stations — see
-[Fleet networking](../fleet/networking.md).
+MCU path for Rosie: **PlatformIO / Arduino library** (ESP32 today; other
+PlatformIO boards later) plus the **DiffDriveStack** assembly that turns
+`robot.yaml` into a running mobile base. SoftAP Wi‑Fi is ESP32-specific and
+**optional** (solo-robot fallback). Fleets should join a dedicated AP as Wi‑Fi
+stations — see [Fleet networking](../fleet/networking.md).
 
-Prefer the Rosie CLI over raw `pio` commands. MCU tooling lives under
-``rosie mcu …`` — use that for ESP32 (and other PlatformIO boards). Raspberry
-Pi / Jetson / laptop hosts use ``rosie setup`` and Python sessions, not this
-group.
+Shared topics, modes, goto, and velocity PID: [Mobile base](mobile-base.md).
+Linux peer: [Linux run](linux-run.md).
+
+Prefer the Rosie CLI over raw `pio` commands:
 
 ```bash
 pip install -e "/path/to/rosie/python[mcu]"   # once
@@ -29,6 +29,96 @@ library via `PLATFORMIO_LIB_EXTRA_DIRS` (`~/.rosie/pio_libs`). Link only:
 `rosie mcu flash` / `monitor` autodetect a USB serial port (`--port` / `ROSIE_PORT`
 to override). Pass-through: `rosie mcu build -- --verbose`. Raw `pio …` remains an
 escape hatch.
+
+## What you write
+
+1. **`robot.yaml`** — identity, network, pins, geometry, gains.
+2. **Thin `main.cpp`** using **`DiffDriveStack`** (recommended), or raw
+   `MobileBase` for custom wiring.
+3. Optional custom `cmd` ops via `stack.base().onCmd(...)`.
+
+Scaffold a new project:
+
+```bash
+mkdir mybot && cd mybot
+rosie mcu init --robot mybot
+# edit robot.yaml pins / SSID
+rosie mcu setup && rosie mcu flash
+rosie drive --config robot.yaml
+```
+
+## DiffDriveStack (recommended)
+
+Include the generated header, then the stack:
+
+```cpp
+#include <Arduino.h>
+#include "generated/robot_config.h"
+#include <rosie/diff_drive_stack.h>
+
+static rosie::DiffDriveStack g_stack;
+
+void setup() {
+  Serial.begin(115200);
+  delay(300);
+  // Optional: g_stack.base().onCmd("my_op", handler);
+  g_stack.begin();
+}
+
+void loop() {
+  g_stack.loop();
+}
+```
+
+`rosie mcu build` / `gen-config` regenerates `robot_config.h` from `robot.yaml`.
+`DiffDriveStack` wires the **selected** motors (`motors.driver`), optional
+encoders / IMU / camera / range, DiffDrive kinematics, Wi‑Fi, Zenoh, SerialShell,
+`MobileBase`, and a `PidVelocityController` (default gains `0,0,0` = open-loop
+feedforward). See [Drivers](drivers.md) for supported ids and pin keys
+(e.g. TB6612 `pwmA`/`ain1`… vs L298N `ena`/`in1`…).
+
+Accessors: `stack.base()`, `stack.motors()` (`MotorDriver&`), `stack.kinematics()`,
+`stack.velocityController()`; plus `stack.encoders()` / `stack.imu()` /
+`stack.camera()` when those sections are present in YAML. Optional
+`range.sensors` (up to 4) are brought up with shared `Wire` + XSHUT ordering and
+registered on `MobileBase` before Zenoh `begin`.
+
+You should not wire `ROSIE_*` macros by hand — `DiffDriveStack` consumes the
+driver and pin macros emitted from `robot.yaml`. Optional onboard velocity PID:
+`control.velocity` in YAML (default 0,0,0 = open-loop); tune live with
+`rosie tune`. Optional raw sensor telemetry: `encoders.pub_hz` / `imu.pub_hz` /
+`range.sensors` (`range/<id>` with raw + median-of-5).
+`control.control_hz` sets the `control` topic rate (default 5 Hz).
+
+Headers: `rosie/diff_drive_stack.h`, `rosie/mobile_base.h`, `rosie/velocity_controller.h`,
+`rosie/motor_driver.h`, `rosie/diff_drive.h`,
+`rosie/drivers/{motors,encoders,imu,camera,range}/*.h`, `rosie/wifi_station.h`,
+`rosie/serial_shell.h`.
+
+## Alternative: raw `MobileBase`
+
+If the chip is not in the MCU inventory (or not wired into `DiffDriveStack`
+yet), implement `MotorDriver` / kinematics yourself and pass them into
+`MobileBase`. Optionally attach a `VelocityController`. Keep using relative
+topics so `rosie teleop` / `rosie drive` still work.
+
+## Control loop
+
+`MobileBase::spin()` (called every Arduino `loop()` via `DiffDriveStack::loop()`)
+separates **control** from **telemetry**. Under the default build
+(`Z_FEATURE_MULTI_THREAD=1`), Zenoh callbacks already run on the pico **read
+task** as soon as samples arrive; `session_.poll()` is a no-op. Only a
+single-threaded pico build drains Zenoh from `poll()`.
+
+| When | What |
+|------|------|
+| Wire arrival (read task) | Callbacks latch `cmd_vel` / `goto` / `cmd` into `cmd_` (mutex) |
+| Every `control.dt_ms` | `tick()` — odometry, mode arbiter, motors |
+| At `pose_hz` / `control_hz` / … | Telemetry publishers |
+
+MCU publishers never use blocking congestion control from `tick()`. Shared
+latch-vs-actuate semantics and command precedence:
+[Mobile base → Control loop timing](mobile-base.md#control-loop-timing).
 
 ## Add the library (automatic vs manual)
 
@@ -54,28 +144,6 @@ build_flags =
 ```
 
 Robot projects can live anywhere; they only need a path to this library. See [BYOR](byor.md).
-
-## MobileBase / DiffDriveStack (recommended for ground robots)
-
-Prefer [Mobile base](mobile-base.md):
-
-1. Write `robot.yaml` (or `rosie mcu init`).
-2. Thin `main.cpp`: `#include "generated/robot_config.h"` then
-   `<rosie/diff_drive_stack.h>` → `DiffDriveStack::begin()` / `loop()`.
-3. `rosie mcu build` regenerates config and compiles.
-
-You should not wire `ROSIE_*` macros by hand — `DiffDriveStack` consumes the
-driver and pin macros emitted from `robot.yaml` (`motors.driver`, encoders,
-IMU, camera). Optional onboard velocity PID: `control.velocity` in YAML
-(default 0,0,0 = open-loop); tune live with `rosie tune`. Optional raw
-sensor telemetry: `encoders.pub_hz` / `imu.pub_hz` publish `encoders` /
-`imu` topics (default off). Supported ids: [Drivers](drivers.md) /
-`rosie drivers list`.
-
-Headers: `rosie/diff_drive_stack.h`, `rosie/mobile_base.h`, `rosie/velocity_controller.h`,
-`rosie/motor_driver.h`, `rosie/diff_drive.h`,
-`rosie/drivers/{motors,encoders,imu,camera}/*.h`, `rosie/wifi_station.h`,
-`rosie/serial_shell.h`.
 
 ## SoftAP / station + Session (advanced)
 

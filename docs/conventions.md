@@ -69,6 +69,7 @@ Constants in `rosie.topics`:
 | `CONTROL` | `control` | robot → host | velocity gains + wheel vel telemetry |
 | `ENCODERS` | `encoders` | robot → host | JSON `EncoderTicks` (opt-in `encoders.pub_hz`) |
 | `IMU` | `imu` | robot → host | JSON `Imu` 6-axis (opt-in `imu.pub_hz`) |
+| — | `range/<id>` | robot → host | JSON `Range` ToF (opt-in `range.sensors`) |
 | `PRESENCE` | `presence` | robot → host | JSON `RobotPresence` |
 | `CAMERA_COMPRESSED` | `camera/compressed` | robot → host | raw bytes (e.g. JPEG) |
 
@@ -90,6 +91,7 @@ way. See [Bridges](robots/bridges.md) for native-vs-bridge guidance and `rosie a
 | **SHOULD** | `goto` + `nav_result` | Accept a planar goal and report a terminal outcome (enables `drive_to` / `rosie drive`) |
 | **MAY** | `camera/compressed` | Publish JPEG bytes for the viz camera panel |
 | **MAY** | `encoders`, `imu` | Raw ticks / 6-axis IMU telemetry (`encoders.pub_hz` / `imu.pub_hz`) |
+| **MAY** | `range/<id>` | ToF / proximity `Range` telemetry (`range.sensors`) |
 | **MAY** | `log`, `cmd`, `control` | Structured logs, custom ops, velocity-gain telemetry |
 
 All keys resolve under `{fleet}/{robot}/…`. Extra JSON fields are allowed as long
@@ -152,7 +154,7 @@ follow from that choice.
 
 | Class | Typical topics | Host (Python) | MCU (zenoh-pico) |
 |-------|----------------|---------------|------------------|
-| **STREAM** (default) | `pose`, `control`, `presence`, `encoders`, `imu`, `log` | DROP, `DATA` | DROP, `DATA` |
+| **STREAM** (default) | `pose`, `control`, `presence`, `encoders`, `imu`, `range/<id>`, `log` | DROP, `DATA` | DROP, `DATA` |
 | **COMMAND** | `cmd`, `goto`, `nav_result` | BLOCK, `INTERACTIVE_HIGH`, express | DROP, `INTERACTIVE_HIGH`, express |
 | **CRITICAL** | `{fleet}/_fleet/estop` | BLOCK, `REAL_TIME`, express | — (published from host) |
 | **BULK** | `camera/compressed` | DROP, `DATA_LOW` | DROP, `DATA_LOW` |

@@ -291,3 +291,37 @@ class Imu:
     @classmethod
     def from_bytes(cls, raw: bytes | str) -> "Imu":
         return cls.from_dict(decode_json(raw))
+
+
+@dataclass
+class Range:
+    stamp: float = 0.0
+    id: str = ""
+    range: float = 0.0
+    range_median: float = 0.0
+    min_range: float = 0.0
+    max_range: float = 0.0
+    ok: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"stamp": float(self.stamp)}
+        d["id"] = self.id
+        d["range"] = self.range
+        d["range_median"] = self.range_median
+        d["min_range"] = self.min_range
+        d["max_range"] = self.max_range
+        d["ok"] = self.ok
+        return d
+
+    def to_bytes(self) -> bytes:
+        if self.stamp == 0.0:
+            self.stamp = stamp_now()
+        return encode_json(self.to_dict())
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Range":
+        return cls(stamp=float(d.get("stamp", 0.0)), id=d.get("id", ""), range=d.get("range", 0.0), range_median=d.get("range_median", 0.0), min_range=d.get("min_range", 0.0), max_range=d.get("max_range", 0.0), ok=bool(d.get("ok", False)))
+
+    @classmethod
+    def from_bytes(cls, raw: bytes | str) -> "Range":
+        return cls.from_dict(decode_json(raw))

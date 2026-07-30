@@ -19,3 +19,11 @@ PRESENCE = "presence"
 CONTROL = "control"
 ENCODERS = "encoders"
 IMU = "imu"
+
+
+def range_topic(sensor_id: str) -> str:
+    """Relative topic for a named range sensor: ``range/<id>``."""
+    sid = str(sensor_id).strip()
+    if not sid:
+        raise ValueError("range sensor id must be non-empty")
+    return f"range/{sid}"

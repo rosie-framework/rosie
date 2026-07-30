@@ -103,9 +103,10 @@ Discrete command / mode switch. Typical topic: `<robot>/cmd`.
 | `op` | `str` | command name |
 | `value` | `f32?` | optional numeric argument |
 
-Common ops on MobileBase / DiffDriveStack: `"stop"`, `"zero"`, `"set_gains"`,
-`"get_gains"`, plus optional `"heading_source"`, `"camera_enable"`. Robots may
-define their own. Hosts should publish `cmd` with `Qos.COMMAND` (see
+Common ops on MobileBase (MCU DiffDriveStack / Linux `rosie run`): `"stop"`,
+`"zero"`, `"set_gains"`, `"get_gains"`, `"heading_source"`, plus optional
+`"camera_enable"` (MCU camera only). Robots may define their own. Hosts should
+publish `cmd` with `Qos.COMMAND` (see
 [Delivery and validity](conventions.md#delivery-and-validity)). `stop` / `zero`
 are idempotent; MobileBase applies them by arrival order relative to `cmd_vel`.
 
@@ -121,7 +122,9 @@ are idempotent; MobileBase applies them by arrival order relative to `cmd_vel`.
 
 ### Control (MobileBase telemetry)
 
-Published on `<robot>/control` when a `VelocityController` is attached (~5 Hz).
+Published on `<robot>/control` when a `VelocityController` is attached
+(`control.control_hz`, default 5 Hz; also immediately after `set_gains` /
+`get_gains`).
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -162,7 +165,7 @@ Published once when AUTO navigation ends.
 |-------|------|---------|
 | `stamp` | `f64` | Seconds (auto-filled when missing) |
 | `goal_id` | `i32` | attempt id from `Goto` (or robot-assigned) |
-| `status` | `str` | `"succeeded"` / `"canceled"` / `"aborted"` |
+| `status` | `str` | `"succeeded"` / `"canceled"` (robots emit these); `"aborted"` is reserved — hosts must tolerate it, robots do not currently emit it |
 | `x` | `f32?` | pose at completion (meters) |
 | `y` | `f32?` | pose at completion (meters) |
 
@@ -235,6 +238,34 @@ Opt-in via `imu.pub_hz` in `robot.yaml` (omit or `0` = off).
   "gyro_x": 0.1,
   "gyro_y": -0.2,
   "gyro_z": 0.05,
+  "ok": true
+}
+```
+
+### Range
+
+Single ToF / proximity sample. Typical topic: `<robot>/range/<id>` (one
+topic per named sensor in `range.sensors`). Opt-in via `range:` in
+`robot.yaml`.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `stamp` | `f64` | Seconds (auto-filled when missing) |
+| `id` | `str` | Sensor id from YAML (e.g. `front_left`) |
+| `range` | `f32` | Latest raw distance (meters) |
+| `range_median` | `f32` | Median of last 5 successful raw samples (meters) — prefer for future auto-stop |
+| `min_range` | `f32` | Config / datasheet lower limit (meters) |
+| `max_range` | `f32` | Config / datasheet upper limit (meters) |
+| `ok` | `bool` | Last raw read succeeded |
+
+```json
+{
+  "stamp": 1.0,
+  "id": "front_left",
+  "range": 0.42,
+  "range_median": 0.41,
+  "min_range": 0.04,
+  "max_range": 4.0,
   "ok": true
 }
 ```

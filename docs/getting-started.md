@@ -108,9 +108,10 @@ For a Pi / Jetson DIY base Rosie drives directly (no ROS). Install
 rosie run --config robot.yaml --dry-run
 rosie run --config robot.yaml
 # laptop: rosie teleop / viz / fleet list — same as MCU
+# optional: rosie tune --config robot.yaml  (needs control.velocity)
 ```
 
-Details: [Mobile base → Linux native](robots/mobile-base.md#linux-native-rosie-run).
+Details: [Linux run](robots/linux-run.md).
 
 ### C. ROS / commercial robot (`rosie agent`)
 

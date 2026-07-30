@@ -100,6 +100,54 @@ drivers:
     platforms: [mcu]
     deps: []
 
+  - id: picamera2
+    category: camera
+    status: supported
+    description: Raspberry Pi CSI camera via picamera2 (apt python3-picamera2)
+    yaml_key: camera.driver
+    platforms: [linux]
+    deps: []
+
+  - id: v4l2
+    category: camera
+    status: supported
+    description: USB / V4L2 webcam via OpenCV (rosie-framework[camera])
+    yaml_key: camera.driver
+    platforms: [linux]
+    deps: []
+
+  - id: python
+    category: camera
+    status: supported
+    description: BYO Python CameraSource (camera.class)
+    yaml_key: camera.driver
+    platforms: [linux]
+    deps: []
+
+  - id: vl53l1x
+    category: range
+    status: supported
+    description: ST VL53L1X ToF distance (I2C; multi via range.sensors + xshut)
+    yaml_key: range.sensors.*.chip
+    platforms: [mcu, linux]
+    deps: ["pololu/VL53L1X"]
+
+  - id: vl53l0x
+    category: range
+    status: supported
+    description: ST VL53L0X ToF distance (I2C; multi via range.sensors + xshut)
+    yaml_key: range.sensors.*.chip
+    platforms: [mcu, linux]
+    deps: ["pololu/VL53L0X"]
+
+  - id: python
+    category: range
+    status: supported
+    description: BYO Python RangeReader (range.sensors.*.class)
+    yaml_key: range.sensors.*.chip
+    platforms: [linux]
+    deps: []
+
   - id: diff_drive
     category: base
     status: supported

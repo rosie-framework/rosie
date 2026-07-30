@@ -49,6 +49,13 @@ class Mpu6050Imu:
             return None
         return sample[5]  # gyro_z
 
+    def recalibrate(self) -> None:
+        """Pose-zero hook: re-wake the device (no software bias model yet)."""
+        try:
+            self._bus.write_byte_data(self._addr, _PWR_MGMT_1, 0)
+        except Exception:
+            pass
+
     def close(self) -> None:
         try:
             self._bus.close()

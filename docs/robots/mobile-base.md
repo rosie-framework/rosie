@@ -1,152 +1,88 @@
 # Mobile base
 
-Opt-in firmware + host layer for **planar ground robots** (differential drive in
-v1). Transport remains `rosie::Session` / Python `Session`; `MobileBase` /
-`DiffDriveStack` add drivers, kinematics, deadman, goto, and standard topics.
+Shared behavior contract for **planar ground robots** (differential drive in
+v1). Transport remains `rosie::Session` / Python `Session`. Platform assembly
+differs — MCU uses `DiffDriveStack`, Linux uses `rosie run` — but both honor
+the same topics, modes, deadman, goto, and optional velocity PID.
 
 ## Layers
 
-Think of it as a stack: you write config + a thin sketch; Rosie fills in the
-middle; hardware sits at the bottom.
+Think of it as a stack: you write config; each platform assembles the shared
+behavior layer; hardware sits at the bottom.
 
 ```mermaid
 flowchart TB
-  yaml["robot.yaml → robot_config.h"]
-  stack["DiffDriveStack — YAML wiring"]
-  mb["MobileBase — topics, modes, deadman, goto"]
-  kin["BaseKinematics — Twist ↔ channels + odom"]
-  vel["VelocityController — optional wheel PID"]
-  motors["MotorDriver — channels → PWM"]
-
-  yaml --> stack
-  stack --> mb
-  mb --> kin
-  kin --> vel
-  vel --> motors
+  subgraph mcu [MCU]
+    yamlM["robot.yaml to robot_config.h"]
+    stack["DiffDriveStack"]
+  end
+  subgraph linux [Linux]
+    yamlL["robot.yaml at runtime"]
+    run["rosie run"]
+  end
+  shared["Shared behavior: topics, modes, deadman, goto, cmd ops"]
+  kin["Kinematics: twist to channels, wheel vel, odometry"]
+  vel["VelocityController: optional wheel PID"]
+  motors["MotorDriver: channels to PWM"]
+  yamlM --> stack --> shared
+  yamlL --> run --> shared
+  shared --> kin --> vel --> motors
 ```
 
-- **`robot.yaml` → `robot_config.h`** — declarative identity, network, pins,
-  geometry, gains, and feature flags. What you edit; codegen feeds the stack.
-- **`DiffDriveStack`** — YAML-driven **default assembly** for diff-drive MCUs:
-  constructs the selected motors, optional encoders/IMU/camera, kinematics,
-  velocity PID, Wi‑Fi / Zenoh / `MobileBase`, and SerialShell from `robot.yaml`.
-  Not the behavior layer — skip it only for chips the inventory/stack does not
-  cover yet. Linux `rosie run` skips it entirely and mirrors `MobileBase` from
-  YAML. Beside the control path below, the stack also wires encoder/IMU hooks
-  and optional camera publish.
-- **`MobileBase`** — shared **behavior** over Session: topics, IDLE/MANUAL/AUTO,
-  teleop deadman, goto, and `cmd`. Holds refs to kinematics, an optional
-  velocity controller, and the motor driver; used by both the MCU stack and
-  Linux `rosie run`. Teleop and goto both produce a body Twist `(v, w)` and
-  currently share one actuation path through the layers below; other modes may
-  grow their own entry points later.
-  - **`BaseKinematics`** — steering geometry: Twist ↔ feedforward channels +
-    wheel velocities + odometry (DiffDrive today; mecanum / ackermann later).
+- **MCU assembly** — `robot.yaml` → `robot_config.h` codegen and
+  `DiffDriveStack` wire motors, sensors, Wi‑Fi, Zenoh, `MobileBase`, and
+  SerialShell. Details: [Firmware](firmware.md).
+- **Linux assembly** — `robot.yaml` (`platform: linux`) read at runtime by
+  `rosie run` / `MobileBaseRuntime`. Details: [Linux run](linux-run.md).
+- **Shared behavior** — topics, IDLE / MANUAL / AUTO, teleop deadman, goto,
+  and `cmd`. Teleop and goto both produce a body Twist `(v, w)` and share one
+  actuation path through the layers below.
+  - **Kinematics** — steering geometry: Twist ↔ feedforward channels + wheel
+    velocities + odometry (DiffDrive today; mecanum / ackermann later).
   - **`VelocityController`** — optional closed-loop correction between
     kinematics outputs and motors. Default PID with gains `0,0,0` ≈ open-loop
     passthrough; if no controller is attached, kinematics channels go straight
-    to the motor driver.
-  - **`MotorDriver`** — channels in `[-1, 1]` → PWM. MCU inventory: TB6612,
-    L298N (see [Drivers](drivers.md)); BYO chips use raw `MobileBase`.
+    to the motor driver. Select via `control.velocity.type` (v1: `pid` only).
+  - **`MotorDriver`** — channels in `[-1, 1]` → PWM. Inventory:
+    [Drivers](drivers.md).
 
-Steering variants plug in as new kinematics; `MobileBase` stays shared. Other
-velocity algorithms implement `VelocityController` and select via
-`control.velocity.type` (v1: `pid` only).
+### Platform differences
 
-## What you write
-
-1. **`robot.yaml`** — identity, network, pins, geometry, gains.
-2. **Thin `main.cpp`** using **`DiffDriveStack`** (recommended), or raw
-   `MobileBase` for custom wiring.
-3. Optional custom `cmd` ops via `stack.base().onCmd(...)`.
-
-Scaffold a new project:
-
-```bash
-mkdir mybot && cd mybot
-rosie mcu init --robot mybot
-# edit robot.yaml pins / SSID
-rosie mcu setup && rosie mcu flash
-rosie drive --config robot.yaml
-```
-
-## Recommended firmware (`DiffDriveStack`)
-
-Include the generated header, then the stack:
-
-```cpp
-#include <Arduino.h>
-#include "generated/robot_config.h"
-#include <rosie/diff_drive_stack.h>
-
-static rosie::DiffDriveStack g_stack;
-
-void setup() {
-  Serial.begin(115200);
-  delay(300);
-  // Optional: g_stack.base().onCmd("my_op", handler);
-  g_stack.begin();
-}
-
-void loop() {
-  g_stack.loop();
-}
-```
-
-`rosie mcu build` / `gen-config` regenerates `robot_config.h` from `robot.yaml`.
-`DiffDriveStack` wires the **selected** motors (`motors.driver`), optional
-encoders / IMU / camera, DiffDrive kinematics, Wi‑Fi, Zenoh, SerialShell,
-`MobileBase`, and a `PidVelocityController` (default gains `0,0,0` = open-loop
-feedforward). See [Drivers](drivers.md) for supported ids and pin keys
-(e.g. TB6612 `pwmA`/`ain1`… vs L298N `ena`/`in1`…).
-
-Accessors: `stack.base()`, `stack.motors()` (`MotorDriver&`), `stack.kinematics()`,
-`stack.velocityController()`; plus `stack.encoders()` / `stack.imu()` /
-`stack.camera()` when those sections are present in YAML.
-
-## Alternative: raw `MobileBase`
-
-If the chip is not in the MCU inventory (or not wired into `DiffDriveStack`
-yet), implement `MotorDriver` / kinematics yourself and pass them into
-`MobileBase`. Optionally attach a `VelocityController`. Keep using relative
-topics so `rosie teleop` / `rosie drive` still work.
+| Concern | MCU | Linux (`rosie run`) |
+|---------|-----|---------------------|
+| Config apply | codegen + reflash | restart `rosie run` |
+| Assembly | `DiffDriveStack` | `MobileBaseRuntime` |
+| Camera | yes (`camera/compressed`) | yes (`camera/compressed`) |
+| Range (ToF) | yes (`range/<id>`) | yes (`range/<id>`) |
+| SerialShell | yes (USB) | no |
+| Dead-reckoning without encoders | no (ticks required) | yes |
 
 ## Configuring control
 
-Twist sources and the shared actuation path under `MobileBase` are described in
-[Layers](#layers). Configure gains in YAML; tune live without reflashing.
+Twist sources and the shared actuation path are described in [Layers](#layers).
+Configure gains in YAML; tune live on either platform.
 
 ### Control loop timing
 
-`MobileBase::spin()` (called every Arduino `loop()`) separates **control** from
-**telemetry**. Under the default build (`Z_FEATURE_MULTI_THREAD=1`), Zenoh
-callbacks already run on the pico **read task** as soon as samples arrive;
-`session_.poll()` is a no-op. Only a single-threaded pico build drains Zenoh
-from `poll()`.
+Motion callbacks do **not** drive the motors. They latch the latest request
+with a local arrival stamp; the next control tick applies it (mode change +
+Twist → motors). Several `cmd_vel` messages between ticks overwrite the latch;
+only the last one is used. Custom `cmd` handlers (e.g. `set_gains`) may run
+immediately in the callback. `control.dt_ms` (default `20`) sets the control
+rate.
 
-| When | What |
-|------|------|
-| Wire arrival (read task) | Callbacks latch `cmd_vel` / `goto` / `cmd` into `cmd_` (mutex) |
-| Every `control.dt_ms` | `tick()` — odometry, mode arbiter, motors |
-| At `pose_hz` / … | Telemetry publishers |
-
-**Latch vs actuate:** motion callbacks do **not** drive the motors. They only
-store the latest request in an inbox (`cmd_`) with an MCU-local arrival stamp.
-On the next `tick()`, that inbox is applied (mode change + `driveTwist_` → PWM).
-Several `cmd_vel` messages between ticks overwrite the latch; only the last one
-is used. Custom `cmd` handlers (e.g. `set_gains`) may run immediately in the
-callback. `dt_ms` (default `20`) sets the control rate.
-
-**Command precedence:** `tick()` honors arrival order. A `cmd_vel` older than
+**Command precedence:** the tick honors arrival order. A `cmd_vel` older than
 the latest `stop` / `zero` does not re-enter MANUAL. While navigating, a `goto`
 with the same `goal_id` is ignored (duplicate); a lower id is ignored as stale;
 a higher id preempts. Delivery classes for pubs (`nav_result` = COMMAND,
 camera = BULK, telemetry = STREAM): [Conventions → Delivery and validity](../conventions.md#delivery-and-validity).
-MCU publishers never use blocking congestion control from `tick()`.
 
 Host `cmd_vel` (MANUAL) or onboard goto (AUTO) produces a body Twist `(v, w)`.
-That Twist goes through `BaseKinematics`, then an optional `VelocityController`,
-then `MotorDriver`. Teleop and goto share that path today.
+That Twist goes through kinematics, then an optional `VelocityController`,
+then the motor driver. Teleop and goto share that path today.
+
+Platform mechanisms (Arduino `spin()` vs Python main loop):
+[Firmware](firmware.md#control-loop) · [Linux run](linux-run.md#control-loop).
 
 ```yaml
 control:
@@ -161,10 +97,12 @@ control:
     ki: 0.0
     kd: 0.0
     i_clamp: 0.5
+  control_hz: 5            # control topic rate when velocity PID attached
 ```
 
 Default velocity gains are **zero** (same feel as open-loop). Non-zero
-starter gains are robot-specific — tune with `rosie tune`.
+starter gains are robot-specific — tune with `rosie tune`. Requires a
+`control.velocity` section (or DiffDriveStack, which always attaches a PID).
 
 ### Live tuning
 
@@ -172,83 +110,27 @@ starter gains are robot-specific — tune with `rosie tune`.
 rosie tune --config robot.yaml          # interactive
 rosie tune set --config robot.yaml --kp 0.3
 rosie tune save --config robot.yaml     # persist live gains into YAML
-rosie mcu flash                         # bake saved defaults
+# MCU: reflash to bake saved defaults
+# Linux: restart `rosie run` to load YAML defaults
 ```
 
 Cmd ops: `set_gains` `{kp,ki,kd,i_clamp}` (partial OK), `get_gains`. Telemetry on
-`control` (gains + target/meas wheel velocities).
-
-Custom inner loop: implement `VelocityController` and
-`base.setVelocityController(&ctrl)` (or inject via BYO MobileBase).
+`control` (gains + target/meas wheel velocities) at `control.control_hz`
+(default 5 Hz), plus immediately after gain ops.
 
 ## `robot.yaml`
 
 See the reference car’s `robot.yaml`. Required: `robot`, `network`, `base`,
-`motors`. Optional: `encoders`, `imu`, `camera`, `control`.
+`motors`. Optional: `encoders`, `imu`, `camera`, `range`, `control`.
 
 Inventory: [Drivers](drivers.md) / `rosie drivers list` (`--platform mcu|linux`).
 
 Set `platform: mcu` (default) or `platform: linux`. Shared sections (`robot`,
-`fleet`, `network.connect`, `base`, `control`) port across platforms; the
-`motors` / `encoders` / `imu` blocks are platform-specific (ESP32 GPIO vs Pi BCM
-/ I2C).
+`fleet`, `network.connect`, `base`, `control`, `range.sensors` layout) port
+across platforms; the `motors` / `encoders` / `imu` / `range` pin and bus
+blocks are platform-specific (ESP32 GPIO vs Pi BCM / I2C).
 
-## Linux native (`rosie run`)
-
-On a Pi or Jetson, Rosie can drive the base directly (no ROS) from `robot.yaml`:
-
-```yaml
-platform: linux
-robot: pi1
-fleet: lab
-network:
-  connect: tcp/192.168.8.2:7447
-base:
-  type: diff_drive
-  wheel_diameter: 0.068
-  wheel_base: 0.13
-  ticks_per_rev: 1440
-motors:
-  driver: tb6612          # same chip as the ESP32 car; pins are Pi BCM
-  pins: { pwmA: 12, ain1: 5, ain2: 6, pwmB: 13, bin1: 20, bin2: 21 }
-  pwm: { freq: 20000, min: 0.1, max: 1.0 }
-# encoders:               # optional; without them, pose is dead-reckoned
-#   driver: gpio_quadrature
-#   pins: { left: [17, 18], right: [22, 23] }
-#   pub_hz: 10            # optional: EncoderTicks on encoders topic
-# imu:
-#   chip: mpu6050
-#   i2c: { bus: 1, addr: 0x68 }
-#   pub_hz: 10            # optional: Imu on imu topic
-control:
-  dt_ms: 20
-  teleop: { timeout_ms: 400, kv: 180, kw: 40 }
-  goto: { kp_linear: 0.8, kp_angular: 1.5, v_max: 0.35, w_max: 1.5 }
-  pose_hz: 20
-  presence_hz: 1
-```
-
-```bash
-pip install "rosie-framework[linux]"          # built-in tb6612 / gpio / mpu6050 / pca9685
-rosie run --config robot.yaml --dry-run
-rosie run --config robot.yaml
-```
-
-The runtime mirrors firmware `MobileBase`: `cmd_vel`, `goto` / `nav_result`,
-`cmd` (`stop` / `zero`), `pose`, `presence`, teleop deadman, and optional
-`encoders` / `imu` topics when `pub_hz` is set. Laptop tools
-(`teleop`, `viz`, `fleet`, `MobileRobot`) work unchanged.
-
-**BYO driver** (no `rosie-framework[linux]` needed):
-
-```yaml
-motors:
-  driver: python
-  class: mypkg.motors:MyMotorDriver   # set_channels / stop / close
-```
-
-`rosie drivers list --platform linux` lists inventory ids. Camera on Linux is
-not supported yet.
+Bring-up: [BYOR](byor.md) · MCU: [Firmware](firmware.md) · Linux: [Linux run](linux-run.md).
 
 ## Standard topics (MobileBase)
 
@@ -257,11 +139,12 @@ not supported yet.
 | `cmd_vel` | host → robot | `Twist` `{v,w}` |
 | `goto` | host → robot | `{x,y,goal_id?}` meters — latest goal wins |
 | `nav_result` | robot → host | one-shot `{goal_id,status,x?,y?}` when a goto ends |
-| `cmd` | host → robot | `stop`, `zero`, `set_gains`, `get_gains`, plus custom ops |
-| `pose` | robot → host | `x,y,theta` plus `mode`, `navigating`, `dist`, `goal_id` while navigating |
+| `cmd` | host → robot | `stop`, `zero`, `set_gains`, `get_gains`, `heading_source`, plus custom ops |
+| `pose` | robot → host | `x,y,theta` plus `mode`, `navigating`, `dist`, `goal_id` while navigating; `imu_ok` / `imu_heading` when IMU present |
 | `control` | robot → host | velocity gains + target/meas wheel vel (when controller attached) |
 | `encoders` | robot → host | cumulative ticks (`EncoderTicks`) when `encoders.pub_hz` set |
 | `imu` | robot → host | 6-axis `Imu` (`accel_*` m/s², `gyro_*` rad/s) when `imu.pub_hz` set |
+| `range/<id>` | robot → host | `Range` (`id`, raw `range`, `range_median`, min/max, `ok`) per sensor in `range.sensors` |
 | `presence` | robot → host | heartbeat |
 | `log` | robot → host | status lines |
 | `camera/compressed` | robot → host | JPEG bytes (if camera in YAML) |
@@ -278,7 +161,8 @@ rosie tune --config robot.yaml
 
 Drive REPL includes optional camera `snap` / `cam` when the robot publishes
 JPEG. For the OpenCV viewer on the host: `pip install "rosie-framework[camera]"` (robots
-can publish `camera/compressed` without that extra).
+can publish `camera/compressed` without that extra). Full camera setup:
+[Camera](camera.md).
 
 ### Navigation helpers
 
@@ -288,7 +172,7 @@ Onboard nav is **one goal at a time**:
 |-------------|------|
 | `goto` / `MobileRobot.goto` | **Goal** — publish `{x,y,goal_id}` (fire-and-forget) |
 | `pose` | **Progress** — `navigating`, `dist`, `goal_id` while AUTO |
-| `nav_result` | **Done** — `{goal_id,status}` once (`succeeded` / `canceled` / `aborted`) |
+| `nav_result` | **Done** — `{goal_id,status}` once (`succeeded` / `canceled`; `aborted` is reserved — hosts must tolerate it, robots do not currently emit it) |
 | `cmd` `stop` | **Cancel** — stops motors; yields `nav_result` `canceled` if a goto was active |
 | `MobileRobot.drive_to` | **Blocking helper** — `goto` + wait for matching `nav_result` |
 | `MobileRobot.drive_route` | **Convenience** — sequential `drive_to` (not a path planner) |
@@ -300,7 +184,7 @@ Do not treat `drive_route` as autonomy infrastructure.
 
 ### `rosie drive`
 
-Interactive REPL over `rosie.MobileRobot` for a MobileBase / DiffDriveStack robot.
+Interactive REPL over `rosie.MobileRobot` for a MobileBase robot.
 Uses `robot.yaml` for identity (or `--robot` / `ROSIE_ROBOT`). Optional:
 `--fleet`, `--connect`, `--dir` (search for `robot.yaml`).
 
@@ -339,7 +223,7 @@ convenience:
 from rosie import MobileRobot
 with MobileRobot(config_path="robot.yaml") as bot:
     bot.wait_for_pose()
-    bot.set_gains(kp=0.3)
+    bot.set_gains(kp=0.3)   # requires control.velocity / attached PID
     bot.drive_to(1.0, 0.0)
 ```
 
@@ -349,4 +233,4 @@ Constructor kwargs, identity without `robot.yaml`, and the full method list:
 
 ## Related
 
-- [BYOR](byor.md) · [Firmware](firmware.md) · [Drivers](drivers.md) · [Bridges](bridges.md) · [Conventions](../conventions.md) · [MobileRobot](../host/mobile-robot.md) · [Writing sessions](../host/writing-sessions.md)
+- [BYOR](byor.md) · [Firmware](firmware.md) · [Linux run](linux-run.md) · [Drivers](drivers.md) · [Camera](camera.md) · [Bridges](bridges.md) · [Conventions](../conventions.md) · [MobileRobot](../host/mobile-robot.md) · [Writing sessions](../host/writing-sessions.md)

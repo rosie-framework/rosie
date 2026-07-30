@@ -81,8 +81,8 @@ Navigation ladder (`goto` → `pose` progress → `nav_result`):
 | Method | Use when |
 |--------|----------|
 | `zero()` | Reset the pose origin to “here” (odometry zero), not an emergency stop. |
-| `set_heading_source(imu=True\|False)` | Choose IMU vs encoder heading (`imu=None` toggles). |
-| `set_gains(kp=…, …)` | Live-tune onboard velocity PID (partial kwargs OK). |
+| `set_heading_source(imu=True\|False)` | Choose IMU vs encoder heading (`imu=None` toggles). Works on MCU and Linux when an IMU is configured. |
+| `set_gains(kp=…, …)` | Live-tune onboard velocity PID (partial kwargs OK). Requires `control.velocity` (or DiffDriveStack’s always-on PID). |
 | `get_gains()` | Ask the robot to publish current gains / wheel velocities on `control` (does not return them). |
 
 ### Camera
@@ -92,6 +92,9 @@ Navigation ladder (`goto` → `pose` progress → `nav_result`):
 | `set_camera_enable(True\|False)` | Turn camera streaming on/off (`cmd` `camera_enable`). |
 | `snap(…)` | Capture one JPEG from `camera/compressed` (enables camera, saves under `captures/`). |
 | `camera_live(…)` | Live preview window (OpenCV if installed; otherwise frame-size prints). |
+
+Frames are independent JPEGs published at `camera.pub_hz` — see
+[Camera](../robots/camera.md).
 
 ### Lifecycle
 
@@ -110,5 +113,6 @@ support the full nav helpers above.
 
 - [Writing sessions](writing-sessions.md) — raw `Session`
 - [Fleet](fleet.md) — fleet discovery / wait / estop
-- [Mobile base](../robots/mobile-base.md) — stack, topics, `rosie drive`
+- [Mobile base](../robots/mobile-base.md) — shared contract, topics, `rosie drive`
+- [Firmware](../robots/firmware.md) · [Linux run](../robots/linux-run.md) — platform assembly
 - [Bridges](../robots/bridges.md) — `rosie agent`

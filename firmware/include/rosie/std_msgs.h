@@ -232,5 +232,36 @@ struct Imu {
   }
 };
 
+struct Range {
+  double stamp = 0.0;
+  char id[64] = {0};
+  float range = {};
+  float range_median = {};
+  float min_range = {};
+  float max_range = {};
+  bool ok = {};
+
+  void toJson(JsonDocument& doc) const {
+    doc["stamp"] = stamp;
+    doc["id"] = id;
+    doc["range"] = range;
+    doc["range_median"] = range_median;
+    doc["min_range"] = min_range;
+    doc["max_range"] = max_range;
+    doc["ok"] = ok;
+  }
+
+  bool fromJson(JsonVariantConst doc) {
+    stamp = doc["stamp"] | 0.0;
+    { const char* s = doc["id"] | ""; strncpy(id, s, sizeof(id) - 1); id[sizeof(id) - 1] = 0; }
+    range = doc["range"] | range;
+    range_median = doc["range_median"] | range_median;
+    min_range = doc["min_range"] | min_range;
+    max_range = doc["max_range"] | max_range;
+    ok = doc["ok"] | ok;
+    return true;
+  }
+};
+
 }  // namespace msg
 }  // namespace rosie

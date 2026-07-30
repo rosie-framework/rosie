@@ -130,8 +130,10 @@ gen-config + stack branch — [Contributing](../../CONTRIBUTING.md) / [Drivers](
 - Network mode, robot id, optional fleet, Zenoh locator
 - That config lives in `robot.yaml`
 - Board / `rosie mcu flash` notes (MCU) or `rosie run` notes (Linux)
-- Any custom `cmd` ops beyond MobileBase defaults (`stop`, `zero`, `set_gains`, …)
+- Any custom `cmd` ops beyond MobileBase defaults (`stop`, `zero`, `set_gains`,
+  `get_gains`, `heading_source`, …)
 - Whether velocity PID is used (`control.velocity`) and how to retune
+  (`rosie tune` works on both MCU and Linux)
 
 ---
 
@@ -176,7 +178,7 @@ control:
 ```
 
 Omit `encoders` for dead-reckoning pose (optional IMU yaw). Full example:
-[Mobile base → Linux native](mobile-base.md#linux-native-rosie-run).
+[Linux run](linux-run.md).
 
 ## L3. BYO motor driver
 
@@ -194,7 +196,9 @@ Implement `set_channels(channels)`, `stop()`, and `close()`. Optional
 ```bash
 rosie run --config robot.yaml --dry-run   # validate + probe drivers
 rosie run --config robot.yaml             # foreground control loop
+rosie tune --config robot.yaml            # optional: live velocity PID (needs control.velocity)
 ```
 
 Laptop: `rosie teleop`, `rosie viz`, `rosie fleet list` — same as MCU. Manual
-`systemd` / `nohup` for now (unit generation deferred).
+`systemd` / `nohup` for now (unit generation deferred). Setup detail:
+[Linux run](linux-run.md). Shared contract: [Mobile base](mobile-base.md).

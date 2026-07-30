@@ -73,7 +73,8 @@ Goto:
 # NavResult — terminal outcome of a goto attempt (typically on nav_result)
 # ---------------------------------------------------------------------------
 # Published once when AUTO navigation ends. status convention:
-#   "succeeded" | "canceled" | "aborted"
+#   "succeeded" | "canceled"  — emitted by MobileBase / rosie run today
+#   "aborted"                 — reserved; hosts must tolerate it, robots do not emit it
 #   goal_id: attempt id from Goto (or robot-assigned)
 #   x, y:    optional pose at completion (meters)
 NavResult:
@@ -130,4 +131,22 @@ Imu:
   gyro_x: f32
   gyro_y: f32
   gyro_z: f32
+  ok: bool
+
+# ---------------------------------------------------------------------------
+# Range — single ToF / proximity sample (typically on range/<id>)
+# ---------------------------------------------------------------------------
+# Opt-in via range.sensors in robot.yaml. One topic per named sensor.
+#   id:            sensor id from YAML (e.g. front_left)
+#   range:         latest raw distance (meters)
+#   range_median:  median of last 5 successful raw samples (meters)
+#   min_range:     sensor / config lower limit (meters)
+#   max_range:     sensor / config upper limit (meters)
+#   ok:            last raw read succeeded
+Range:
+  id: str
+  range: f32
+  range_median: f32
+  min_range: f32
+  max_range: f32
   ok: bool

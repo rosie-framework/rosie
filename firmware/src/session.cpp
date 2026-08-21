@@ -138,30 +138,15 @@ bool Session::open(const char* connect_locator, const char* mode,
     return false;
   }
 
-  startBackgroundTasks();
-  ok_ = true;
-  Serial.println("Rosie: Zenoh session ready.");
-  esp_rom_printf("Rosie: Zenoh session ready.\n");
-  return true;
-}
-
-void Session::startBackgroundTasks() {
-  if (!impl_) return;
-#if Z_FEATURE_MULTI_THREAD == 1
   if (zp_start_read_task(z_session_loan_mut(&impl_->session), NULL) < 0) {
     Serial.println("Rosie: failed to start read task");
   } else if (zp_start_lease_task(z_session_loan_mut(&impl_->session), NULL) < 0) {
     Serial.println("Rosie: failed to start lease task");
   }
-#endif
-}
-
-void Session::poll() {
-  if (!ok_ || !impl_) return;
-#if Z_FEATURE_MULTI_THREAD != 1
-  zp_read(z_session_loan(&impl_->session), NULL);
-  zp_send_keep_alive(z_session_loan(&impl_->session), NULL);
-#endif
+  ok_ = true;
+  Serial.println("Rosie: Zenoh session ready.");
+  esp_rom_printf("Rosie: Zenoh session ready.\n");
+  return true;
 }
 
 void Session::fillPublisherOptions_(Qos qos, void* options_out) {

@@ -75,7 +75,7 @@ Planar pose estimate. Typical topic: `<robot>/pose`.
 `imu_heading`. Progress is on `pose`; terminal outcome is on `nav_result`.
 `MobileRobot.drive_to` waits for a matching `nav_result`. See
 [Conventions](conventions.md) and
-[Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
+[Mobile base → Motion on the robot](robots/mobile-base.md#motion-on-the-robot).
 
 ### Log
 
@@ -142,7 +142,7 @@ Hosts should set `goal_id` and publish with `Qos.COMMAND`; if omitted,
 MobileBase assigns one. While navigating, a duplicate `goal_id` is ignored and
 a lower id is treated as stale; a higher id preempts. When idle, any `goto` is
 accepted. Completion is published on `nav_result` (not inferred from `pose`
-alone). See [Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers)
+alone). See [Mobile base → Motion on the robot](robots/mobile-base.md#motion-on-the-robot)
 and [Delivery and validity](conventions.md#delivery-and-validity).
 
 | Field | Type | Meaning |

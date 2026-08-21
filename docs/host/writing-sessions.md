@@ -7,11 +7,11 @@ same robot id) to publish into / subscribe from that namespace — see
 [Architecture → Bus, Session, Topic](../architecture.md#bus-session-topic).
 
 For MobileBase robots, prefer the higher-level **[`MobileRobot`](mobile-robot.md)**
-helper or the `rosie drive` CLI (see [Mobile base → Host](../robots/mobile-base.md#host)).
-Navigation ladder: `goto` (goal) → `pose` (progress) → `nav_result` (done);
-`drive_to` waits on `nav_result` — details in
-[Navigation helpers](../robots/mobile-base.md#navigation-helpers).
-Raw `Session` remains the right tool for custom hosts and non-mobile robots.
+helper or the [`rosie drive`](mobile-robot.md#rosie-drive) CLI.
+Onboard paths: `cmd_vel` (MANUAL) or `goto` → `pose` → `nav_result` (AUTO) —
+[Motion on the robot](../robots/mobile-base.md#motion-on-the-robot).
+`drive_to` waits on `nav_result`. Raw `Session` remains the right tool for
+custom hosts and non-mobile robots.
 
 ```python
 from rosie import MobileRobot

@@ -133,7 +133,7 @@ Catalog: [Messages](messages.md). MCU publisher / JSON buffer caps:
 
 | Rosie provides | You provide |
 |----------------|-------------|
-| Session, pub/sub, SoftAP + **wifiStation** | `robot.yaml` pins, ids, credentials, gains |
+| Session, pub/sub, SoftAP + **wifiStation**, **mcuConnect** | `robot.yaml` pins, ids, credentials, gains |
 | `DiffDriveStack` / `MobileBase`, inventory drivers | Thin `main.cpp`; choose drivers in YAML (or BYO / raw `MobileBase`) |
 | Goto + optional velocity PID (`rosie tune`) | Custom `VelocityController` / `cmd` ops when needed |
 | Fleet identity, manifest wait, topic / bag / drive CLI | Robot ids, manifest roster, mission logic beyond presence |

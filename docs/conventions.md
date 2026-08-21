@@ -119,8 +119,9 @@ robot's own topics (e.g. ROS `/cmd_vel`, `/odom`).
 | Yaw `theta` | radians; convention is robot-defined (often +CCW from +x) |
 
 There is **no TF tree** and **no `frame_id`**. Pose and goto share whatever frame
-the robot defines (document it in the robot README). Host helpers above `goto`
-are documented in [Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
+the robot defines (document it in the robot README). Onboard `cmd_vel` / `goto`
+paths: [Mobile base → Motion on the robot](robots/mobile-base.md#motion-on-the-robot).
+Host helpers (`drive_to`, `drive`, `turn`): [MobileRobot](host/mobile-robot.md).
 
 ## Binary vs JSON topics
 
@@ -141,7 +142,7 @@ are documented in [Mobile base → Navigation helpers](robots/mobile-base.md#nav
 | `imu_ok` / `imu_heading` | optional IMU status |
 
 Terminal outcome is **`nav_result`**, not an edge on `navigating`. See
-[Mobile base → Navigation helpers](robots/mobile-base.md#navigation-helpers).
+[Mobile base → Motion on the robot](robots/mobile-base.md#motion-on-the-robot).
 
 Robot description for MCU bring-up is **`robot.yaml`** (not URDF) — see
 [Mobile base](robots/mobile-base.md).

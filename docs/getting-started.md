@@ -92,7 +92,7 @@ rosie drive --config robot.yaml     # REPL: waypoints, teleop, camera, …
 rosie mcu monitor
 ```
 
-How to use the drive REPL: [Mobile base → Host](robots/mobile-base.md#host).
+How to use the drive REPL: [MobileRobot → rosie drive](host/mobile-robot.md#rosie-drive).
 Full checklist: [BYOR](robots/byor.md). Control / YAML / topics: [Mobile base](robots/mobile-base.md).
 Raw `MobileBase` is an escape hatch for chips not in the MCU inventory / stack —
 not the default path.

@@ -1,5 +1,12 @@
 #pragma once
 
+#ifndef Z_FEATURE_MULTI_THREAD
+#define Z_FEATURE_MULTI_THREAD 0
+#endif
+#if Z_FEATURE_MULTI_THREAD != 1
+#error "Rosie MCU Session requires -DZ_FEATURE_MULTI_THREAD=1 (zenoh-pico read/lease tasks)"
+#endif
+
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <stddef.h>
@@ -65,8 +72,6 @@ class Session {
   bool open(const char* connect_locator, const char* mode = "client",
             const char* user = nullptr, const char* password = nullptr);
   bool ready() const { return ok_; }
-  void poll();
-  void startBackgroundTasks();
 
   /** Declare a publisher; ``name`` is relative or absolute. Returns id or -1. */
   int createPublisher(const char* name, Qos qos = Qos::Stream);

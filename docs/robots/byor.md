@@ -97,7 +97,7 @@ rosie tune --config robot.yaml      # optional: live velocity PID
 ```
 
 Drive REPL commands, flags, and the Python `MobileRobot` API:
-[Mobile base → Host](mobile-base.md#host) · [MobileRobot](../host/mobile-robot.md).
+[MobileRobot](../host/mobile-robot.md) ([`rosie drive`](../host/mobile-robot.md#rosie-drive)).
 
 ## 6. Bring-up order
 

@@ -72,10 +72,10 @@ void loop() {
 
 `rosie mcu build` / `gen-config` regenerates `robot_config.h` from `robot.yaml`.
 `DiffDriveStack` wires the **selected** motors (`motors.driver`), optional
-encoders / IMU / camera / range, DiffDrive kinematics, Wi‑Fi, Zenoh, SerialShell,
-`MobileBase`, and a `PidVelocityController` (default gains `0,0,0` = open-loop
-feedforward). See [Drivers](drivers.md) for supported ids and pin keys
-(e.g. TB6612 `pwmA`/`ain1`… vs L298N `ena`/`in1`…).
+encoders / IMU / camera / range, DiffDrive kinematics, Wi‑Fi + Zenoh via
+`rosie::mcuConnect`, SerialShell, `MobileBase`, and a `PidVelocityController`
+(default gains `0,0,0` = open-loop feedforward). See [Drivers](drivers.md) for
+supported ids and pin keys (e.g. TB6612 `pwmA`/`ain1`… vs L298N `ena`/`in1`…).
 
 Accessors: `stack.base()`, `stack.motors()` (`MotorDriver&`), `stack.kinematics()`,
 `stack.velocityController()`; plus `stack.encoders()` / `stack.imu()` /
@@ -92,8 +92,8 @@ driver and pin macros emitted from `robot.yaml`. Optional onboard velocity PID:
 
 Headers: `rosie/diff_drive_stack.h`, `rosie/mobile_base.h`, `rosie/velocity_controller.h`,
 `rosie/motor_driver.h`, `rosie/diff_drive.h`,
-`rosie/drivers/{motors,encoders,imu,camera,range}/*.h`, `rosie/wifi_station.h`,
-`rosie/serial_shell.h`.
+`rosie/drivers/{motors,encoders,imu,camera,range}/*.h`, `rosie/mcu_connect.h`,
+`rosie/wifi_station.h`, `rosie/serial_shell.h`.
 
 ## Alternative: raw `MobileBase`
 
@@ -104,21 +104,27 @@ topics so `rosie teleop` / `rosie drive` still work.
 
 ## Control loop
 
-`MobileBase::spin()` (called every Arduino `loop()` via `DiffDriveStack::loop()`)
-separates **control** from **telemetry**. Under the default build
-(`Z_FEATURE_MULTI_THREAD=1`), Zenoh callbacks already run on the pico **read
-task** as soon as samples arrive; `session_.poll()` is a no-op. Only a
-single-threaded pico build drains Zenoh from `poll()`.
+Inbox vs plant (why callbacks latch and the tick drives motors):
+[Mobile base → Control loop timing](mobile-base.md#control-loop-timing).
+
+On MCU those two sides are different FreeRTOS tasks:
+
+| Who | Thread | Job |
+|-----|--------|-----|
+| zenoh-pico **read task** | Started by `Session::open()` (`-DZ_FEATURE_MULTI_THREAD=1` required) | As soon as a sample arrives, run the subscriber callback: parse, stamp, latch into `cmd_` (mutex). No motors. |
+| zenoh-pico **lease task** | Same `open()` | Session keep-alive (not motion). |
+| Arduino `loop()` → `DiffDriveStack::loop()` → `MobileBase::spin()` | Main sketch | USB `SerialShell`, then timed `tick()` + telemetry pubs. |
+
+`spin()` does **not** drain Zenoh. It only runs `tick()` every `control.dt_ms`
+(odometry, mode arbiter, motors) and publishes `pose` / `presence` / … at their
+`*_hz` rates. MCU publishers never use blocking congestion control from
+`tick()`.
 
 | When | What |
 |------|------|
 | Wire arrival (read task) | Callbacks latch `cmd_vel` / `goto` / `cmd` into `cmd_` (mutex) |
 | Every `control.dt_ms` | `tick()` — odometry, mode arbiter, motors |
 | At `pose_hz` / `control_hz` / … | Telemetry publishers |
-
-MCU publishers never use blocking congestion control from `tick()`. Shared
-latch-vs-actuate semantics and command precedence:
-[Mobile base → Control loop timing](mobile-base.md#control-loop-timing).
 
 ## Add the library (automatic vs manual)
 
@@ -150,12 +156,38 @@ Robot projects can live anywhere; they only need a path to this library. See [BY
 For a **single** robot with no travel router, use SoftAP. For fleets, join a
 dedicated AP as a station — [Fleet networking](../fleet/networking.md).
 
+Prefer **`rosie::mcuConnect`** when you want the same Wi‑Fi + Zenoh retry policy
+as `DiffDriveStack` without assembling motors:
+
+```cpp
+#include <rosie/mcu_connect.h>
+#include <rosie/session.h>
+
+rosie::Session session("robot");
+
+void setup() {
+  Serial.begin(115200);
+  rosie::McuConnectConfig cfg;
+  cfg.network_mode = "softap";       // or "station"
+  cfg.wifi_ssid = "MyRobot-AP";
+  cfg.wifi_password = "password";
+  cfg.zenoh_connect = "tcp/192.168.4.2:7447";
+  cfg.zenoh_mode = "client";
+  if (!rosie::mcuConnect(session, cfg)) {
+    Serial.println("Zenoh not up — USB still works");
+  }
+  // createPublisher / createSubscription …
+}
+```
+
+Raw helpers (custom glue that does not want retries):
+
 ```cpp
 #include <rosie/wifi_softap.h>   // or wifi_station.h
 #include <rosie/session.h>
 ```
 
-Raw Session sketch (advanced / non-mobile):
+Raw Session sketch without `mcuConnect` (advanced / non-mobile):
 
 ```cpp
 #include <rosie/wifi_softap.h>
@@ -183,7 +215,6 @@ void setup() {
 }
 
 void loop() {
-  session.poll();
   JsonDocument doc;
   doc["x"] = 0.0;
   doc["y"] = 0.0;
@@ -208,8 +239,6 @@ Typed messages (after codegen): `#include <rosie/std_msgs.h>` → `rosie::msg::T
 | `resolveFleetName(name, out, len)` | → `{fleet}/_fleet/name` (requires fleet) |
 | `open(locator, mode)` | Connect to `zenohd` (usually `"client"`); starts background tasks |
 | `ready()` | Session opened successfully |
-| `poll()` | Drive Zenoh / callbacks from the Arduino loop |
-| `startBackgroundTasks()` | Called by `open`; rarely needed directly |
 | `createPublisher(name)` | Relative/absolute name; returns pub id `>= 0`, or `-1` |
 | `createFleetPublisher(name)` | Fleet-scoped publisher |
 | `createSubscription(name, cb, user)` | Raw-bytes callback |
@@ -219,6 +248,8 @@ Typed messages (after codegen): `#include <rosie/std_msgs.h>` → `rosie::msg::T
 
 Wi‑Fi helpers (ESP32): `rosie::softAP(ssid, password, channel = 1)` (solo
 fallback); `rosie::wifiStation(ssid, password, timeout_ms)` (fleet / dedicated AP).
+Shared bring-up: `rosie::mcuConnect(session|base, cfg)` — SoftAP or station,
+then Zenoh open/`MobileBase::begin` with retries (same policy as DiffDriveStack).
 
 ## Limits
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import platform
 import subprocess
@@ -15,8 +16,13 @@ from typing import Any
 from rosie import Session, topics
 from rosie.messages import encode_json
 from rosie.session import Qos
-from rosie.std_msgs import Cmd, Goto
+from rosie.std_msgs import Cmd, Goto, Twist
 from rosie.tools.teleop_twist import run_teleop
+
+
+def _wrap_deg(delta: float) -> float:
+    """Wrap a degree delta to (−180, 180]."""
+    return (float(delta) + 180.0) % 360.0 - 180.0
 
 
 def _msg_cmd(op: str, value: Any = None) -> bytes:
@@ -43,6 +49,8 @@ class MobileRobot:
       ``aborted`` is reserved — hosts must tolerate it, robots do not emit it)
       ``drive_to`` — blocking helper: goto + wait for matching ``nav_result``
       ``drive_route`` — convenience: sequential ``drive_to`` (not a planner)
+      ``drive`` — relative distance on wheel odometry (host ``cmd_vel`` loop)
+      ``turn`` — relative heading on pose (host ``cmd_vel`` loop)
 
     Also: teleop, camera, pose, gains. Interactive UX: ``rosie drive``.
     """
@@ -118,6 +126,157 @@ class MobileRobot:
 
     def stop(self) -> None:
         self.session.publish(topics.CMD, _msg_cmd("stop"), qos=_CMD_QOS)
+
+    def _publish_twist(self, v: float, w: float) -> None:
+        self.session.publish_msg(topics.CMD_VEL, Twist(v=float(v), w=float(w)))
+
+    def _halt(self) -> None:
+        self._publish_twist(0.0, 0.0)
+        self.stop()
+
+    @staticmethod
+    def _heading_deg(pose: dict) -> float:
+        if pose.get("heading_deg") is not None:
+            return float(pose["heading_deg"])
+        return math.degrees(float(pose.get("theta", 0.0)))
+
+    def _require_pose(self, timeout_s: float = 3.0) -> dict:
+        p = self.wait_for_pose(timeout_s)
+        if not p:
+            raise TimeoutError(f"no pose received within {timeout_s}s")
+        return p
+
+    def drive(
+        self,
+        meters: float,
+        speed: float = 0.25,
+        *,
+        hz: float = 10.0,
+        timeout_s: float | None = None,
+    ) -> dict:
+        """Drive a signed distance on wheel odometry. Negative ``meters`` reverses.
+
+        Streams ``cmd_vel`` (deadman) and stops when planar displacement from the
+        start pose reaches ``abs(meters)``. Ctrl-C sends ``stop`` and re-raises.
+        Returns the pose at halt.
+        """
+        meters = float(meters)
+        speed = float(speed)
+        if speed <= 0.0:
+            raise ValueError("speed must be > 0")
+        if hz <= 0.0:
+            raise ValueError("hz must be > 0")
+        if abs(meters) < 1e-9:
+            self._halt()
+            return self.pose()
+
+        start = self._require_pose()
+        sx = float(start.get("x", 0.0))
+        sy = float(start.get("y", 0.0))
+        target = abs(meters)
+        v = math.copysign(speed, meters)
+        if timeout_s is None:
+            timeout_s = max(5.0, target / speed * 2.0 + 2.0)
+        period = 1.0 / hz
+        deadline = time.monotonic() + float(timeout_s)
+        print(
+            f"  drive {meters:+.3f} m at {speed:.2f} m/s ...  (Ctrl-C to send STOP)"
+        )
+        try:
+            while True:
+                if time.monotonic() >= deadline:
+                    self._halt()
+                    print()
+                    raise TimeoutError(
+                        f"drive did not reach {target:.3f} m within {timeout_s}s"
+                    )
+                p = self.pose()
+                traveled = math.hypot(
+                    float(p.get("x", sx)) - sx, float(p.get("y", sy)) - sy
+                )
+                remaining = target - traveled
+                if remaining <= 0.0:
+                    break
+                self._publish_twist(v, 0.0)
+                sys.stdout.write(
+                    f"\r  pose:  x={p.get('x', 0):7.3f} m   y={p.get('y', 0):7.3f} m   "
+                    f"traveled={traveled:6.3f} m   remaining={remaining:6.3f} m   "
+                )
+                sys.stdout.flush()
+                time.sleep(period)
+        except KeyboardInterrupt:
+            self._halt()
+            print("\n  STOP sent.")
+            raise
+        self._halt()
+        print()
+        return self.pose()
+
+    def turn(
+        self,
+        degrees: float,
+        rate_dps: float = 60,
+        *,
+        hz: float = 10.0,
+        timeout_s: float | None = None,
+    ) -> dict:
+        """Turn in place by a signed heading angle (degrees, +left / CCW).
+
+        Streams ``cmd_vel`` yaw (deadman) and stops when accumulated heading
+        change on pose reaches ``abs(degrees)``. Ctrl-C sends ``stop`` and
+        re-raises. Returns the pose at halt.
+        """
+        degrees = float(degrees)
+        rate_dps = float(rate_dps)
+        if rate_dps <= 0.0:
+            raise ValueError("rate_dps must be > 0")
+        if hz <= 0.0:
+            raise ValueError("hz must be > 0")
+        if abs(degrees) < 1e-9:
+            self._halt()
+            return self.pose()
+
+        start = self._require_pose()
+        last_h = self._heading_deg(start)
+        target = abs(degrees)
+        w = math.copysign(math.radians(rate_dps), degrees)
+        if timeout_s is None:
+            timeout_s = max(5.0, target / rate_dps * 2.0 + 2.0)
+        period = 1.0 / hz
+        deadline = time.monotonic() + float(timeout_s)
+        traveled = 0.0
+        print(
+            f"  turn {degrees:+.1f} deg at {rate_dps:.0f} deg/s ...  (Ctrl-C to send STOP)"
+        )
+        try:
+            while True:
+                if time.monotonic() >= deadline:
+                    self._halt()
+                    print()
+                    raise TimeoutError(
+                        f"turn did not reach {target:.1f} deg within {timeout_s}s"
+                    )
+                p = self.pose()
+                h = self._heading_deg(p)
+                traveled += abs(_wrap_deg(h - last_h))
+                last_h = h
+                remaining = target - traveled
+                if remaining <= 0.0:
+                    break
+                self._publish_twist(0.0, w)
+                sys.stdout.write(
+                    f"\r  pose:  heading={h:7.1f} deg   "
+                    f"turned={traveled:6.1f} deg   remaining={remaining:6.1f} deg   "
+                )
+                sys.stdout.flush()
+                time.sleep(period)
+        except KeyboardInterrupt:
+            self._halt()
+            print("\n  STOP sent.")
+            raise
+        self._halt()
+        print()
+        return self.pose()
 
     def zero(self) -> None:
         self.session.publish(topics.CMD, _msg_cmd("zero"), qos=_CMD_QOS)

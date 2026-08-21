@@ -5,23 +5,21 @@
  *
  *   begin(connect) → loop: spin()
  *
- * ``spin()`` does three independent things each Arduino ``loop()``:
+ * ``spin()`` does two independent things each Arduino ``loop()``:
  *
- *   - ``session_.poll()`` — no-op when ``Z_FEATURE_MULTI_THREAD=1`` (default);
- *     otherwise drains Zenoh on this thread
  *   - ``tick()`` — every ``control.dt_ms`` (odometry + mode + motors)
  *   - telemetry pubs — at pose_hz / presence_hz / …
  *
  * Latch vs actuate (important):
  *
- *   Under the default multi-threaded build, Zenoh callbacks run on the
- *   pico read task as soon as samples arrive (concurrent with ``tick()``).
- *   Built-in cmds (stop / zero / goto / cmd_vel) never touch motors there —
- *   they only write the latest request into ``cmd_`` under a mutex ("latch").
- *   ``tick()`` later snapshots ``cmd_`` and performs mode changes +
- *   ``driveTwist_`` ("actuate"). Many cmd_vels between ticks overwrite the
- *   latch; only the last one is applied at dt_ms. Custom ``cmd`` handlers
- *   (e.g. set_gains) may run immediately in the callback.
+ *   Zenoh callbacks run on the pico read task as soon as samples arrive
+ *   (concurrent with ``tick()``). Built-in cmds (stop / zero / goto /
+ *   cmd_vel) never touch motors there — they only write the latest request
+ *   into ``cmd_`` under a mutex ("latch"). ``tick()`` later snapshots
+ *   ``cmd_`` and performs mode changes + ``driveTwist_`` ("actuate"). Many
+ *   cmd_vels between ticks overwrite the latch; only the last one is applied
+ *   at dt_ms. Custom ``cmd`` handlers (e.g. set_gains) may run immediately
+ *   in the callback.
  *
  * See docs/robots/mobile-base.md (control loop timing + topics/YAML).
  */
@@ -165,11 +163,11 @@ void MobileBase::declareEndpoints_() {
 // ---------------------------------------------------------------------------
 // Zenoh inbox callbacks — latch only for motion (no motors here)
 //
-// Under Z_FEATURE_MULTI_THREAD=1 (default), these run on the zenoh-pico read
-// task as soon as a sample arrives — not from spin()/poll(). They must stay
-// short: parse JSON, update cmd_, return. Motors, mode transitions, and
-// odometry run later in tick() at a fixed dt_ms. Custom cmd handlers
-// (set_gains / get_gains) may run immediately in this task.
+// These run on the zenoh-pico read task as soon as a sample arrives — not
+// from spin(). They must stay short: parse JSON, update cmd_, return.
+// Motors, mode transitions, and odometry run later in tick() at a fixed
+// dt_ms. Custom cmd handlers (set_gains / get_gains) may run immediately
+// in this task.
 // ---------------------------------------------------------------------------
 
 /** Latch Twist into cmd_; Manual mode + drive happen on the next tick(). */
@@ -615,13 +613,11 @@ void MobileBase::tick() {
 /**
  * Arduino ``loop()`` entry: timed tick + telemetry publishers.
  *
- * Call as often as possible. Under ``Z_FEATURE_MULTI_THREAD=1`` (default),
- * ``session_.poll()`` is a no-op — Zenoh callbacks already run on the pico
- * read task. ``tick()`` runs only every ``dt_ms``. Publish rates are
- * independent (*_hz).
+ * Call as often as possible. Zenoh callbacks already run on the pico read
+ * task. ``tick()`` runs only every ``dt_ms``. Publish rates are independent
+ * (*_hz).
  */
 void MobileBase::spin() {
-  session_.poll();
   unsigned long now = millis();
   if (now - last_loop_ms_ >= cfg_.dt_ms) {
     last_loop_ms_ = now;

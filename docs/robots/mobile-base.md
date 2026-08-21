@@ -30,8 +30,8 @@ flowchart TB
 ```
 
 - **MCU assembly** — `robot.yaml` → `robot_config.h` codegen and
-  `DiffDriveStack` wire motors, sensors, Wi‑Fi, Zenoh, `MobileBase`, and
-  SerialShell. Details: [Firmware](firmware.md).
+  `DiffDriveStack` wire motors, sensors, `mcuConnect` (Wi‑Fi + Zenoh),
+  `MobileBase`, and SerialShell. Details: [Firmware](firmware.md).
 - **Linux assembly** — `robot.yaml` (`platform: linux`) read at runtime by
   `rosie run` / `MobileBaseRuntime`. Details: [Linux run](linux-run.md).
 - **Shared behavior** — topics, IDLE / MANUAL / AUTO, teleop deadman, goto,
@@ -64,12 +64,41 @@ Configure gains in YAML; tune live on either platform.
 
 ### Control loop timing
 
-Motion callbacks do **not** drive the motors. They latch the latest request
-with a local arrival stamp; the next control tick applies it (mode change +
-Twist → motors). Several `cmd_vel` messages between ticks overwrite the latch;
-only the last one is used. Custom `cmd` handlers (e.g. `set_gains`) may run
-immediately in the callback. `control.dt_ms` (default `20`) sets the control
-rate.
+Two things run at once: an **inbox** (network callbacks) and a **plant loop**
+(the control tick). Callbacks write the latest command into a shared slot
+(`cmd_`); each tick copies that slot and acts on the copy. A mutex keeps those
+two accesses from overlapping. Callbacks never write PWM; the tick never waits
+on the network.
+
+```mermaid
+flowchart LR
+  wire["cmd_vel / goto / cmd on the bus"] --> cb["Callback: parse, stamp, latch"]
+  cb --> inbox["Latest request in cmd_"]
+  tick["Tick every dt_ms"] --> odom["Read sensors, update odom"]
+  odom --> arbiter["Apply inbox: mode + Twist"]
+  arbiter --> motors["Kinematics to motors"]
+  inbox --> arbiter
+```
+
+**Callbacks (inbox).** When a sample arrives, a subscriber callback runs on the
+transport thread (MCU: zenoh-pico **read task**; Linux: Zenoh callback). It
+parses JSON, stamps arrival with local time, and stores the latest
+`cmd_vel` / `goto` / `stop` / `zero` in `cmd_`. Then it returns. Several
+`cmd_vel` messages between ticks overwrite the latch — only the last one is
+used. Custom `cmd` handlers that do not move the robot (e.g. `set_gains`) may
+run in the callback.
+
+**Tick (plant).** Every `control.dt_ms` (default `20`) the control thread runs
+`tick()`: read encoders / IMU, update odometry, snapshot the inbox, arbitrate
+mode, then `driveTwist_` → kinematics → optional velocity PID → motors. Goto
+is a loop on this period (pose error → Twist), not work the `goto` callback
+finishes. Deadman also lives here (age of last `cmd_vel`).
+
+That split is why callbacks exist *and* why they do not drive motors: the
+network must deliver commands as soon as they arrive, but the plant needs a
+fixed rate, one writer for motors, and one place to order stop vs teleop vs
+goto. Driving PWM from the read task would race the tick and jitter with
+Wi‑Fi.
 
 **Command precedence:** the tick honors arrival order. A `cmd_vel` older than
 the latest `stop` / `zero` does not re-enter MANUAL. While navigating, a `goto`
@@ -81,7 +110,7 @@ Host `cmd_vel` (MANUAL) or onboard goto (AUTO) produces a body Twist `(v, w)`.
 That Twist goes through kinematics, then an optional `VelocityController`,
 then the motor driver. Teleop and goto share that path today.
 
-Platform mechanisms (Arduino `spin()` vs Python main loop):
+Platform mechanisms (MCU read task + `spin()` vs Python main loop):
 [Firmware](firmware.md#control-loop) · [Linux run](linux-run.md#control-loop).
 
 ```yaml
@@ -149,87 +178,38 @@ Bring-up: [BYOR](byor.md) · MCU: [Firmware](firmware.md) · Linux: [Linux run](
 | `log` | robot → host | status lines |
 | `camera/compressed` | robot → host | JPEG bytes (if camera in YAML) |
 
+## Motion on the robot
+
+<a id="navigation-helpers"></a>
+
+How the **robot** accepts motion. Host methods and the drive REPL:
+[MobileRobot](../host/mobile-robot.md).
+
+| Path | Topics | Who closes the loop |
+|------|--------|---------------------|
+| MANUAL | `cmd_vel` (`Twist`) | Host streams velocity; robot deadman + tick apply it |
+| AUTO | `goto` → `pose` progress → `nav_result` | Robot (one goal at a time) |
+| Cancel / origin | `cmd` `stop` / `zero` | Robot; `stop` during AUTO → `nav_result` `canceled` |
+
+Arrival order and `goal_id` rules: [Control loop timing](#control-loop-timing).
+Latest `cmd_vel` wins; `stop` / `zero` beat an older `cmd_vel`. While AUTO, a
+duplicate `goal_id` is ignored, a lower id is stale, a higher id preempts.
+`nav_result` is `succeeded` / `canceled` (`aborted` is reserved — hosts must
+tolerate it, robots do not currently emit it).
+
 ## Host
 
-With the robot on the bus and `rosie router` running:
+Laptop tools once the robot is on the bus (`rosie router` running):
 
 ```bash
-rosie drive --config robot.yaml
 rosie teleop --robot mybot
+rosie drive --config robot.yaml
 rosie tune --config robot.yaml
 ```
 
-Drive REPL includes optional camera `snap` / `cam` when the robot publishes
-JPEG. For the OpenCV viewer on the host: `pip install "rosie-framework[camera]"` (robots
-can publish `camera/compressed` without that extra). Full camera setup:
-[Camera](camera.md).
-
-### Navigation helpers
-
-Onboard nav is **one goal at a time**:
-
-| Topic / API | Role |
-|-------------|------|
-| `goto` / `MobileRobot.goto` | **Goal** — publish `{x,y,goal_id}` (fire-and-forget) |
-| `pose` | **Progress** — `navigating`, `dist`, `goal_id` while AUTO |
-| `nav_result` | **Done** — `{goal_id,status}` once (`succeeded` / `canceled`; `aborted` is reserved — hosts must tolerate it, robots do not currently emit it) |
-| `cmd` `stop` | **Cancel** — stops motors; yields `nav_result` `canceled` if a goto was active |
-| `MobileRobot.drive_to` | **Blocking helper** — `goto` + wait for matching `nav_result` |
-| `MobileRobot.drive_route` | **Convenience** — sequential `drive_to` (not a path planner) |
-| `rosie drive` | **REPL** — interactive prompt over those helpers |
-
-Latest `goto` preempts any in-progress goal (previous attempt gets `canceled`).
-Compose retries or tasks-at-waypoint yourself on top of `goto` / `drive_to`.
-Do not treat `drive_route` as autonomy infrastructure.
-
-### `rosie drive`
-
-Interactive REPL over `rosie.MobileRobot` for a MobileBase robot.
-Uses `robot.yaml` for identity (or `--robot` / `ROSIE_ROBOT`). Optional:
-`--fleet`, `--connect`, `--dir` (search for `robot.yaml`).
-
-```bash
-rosie drive --config robot.yaml
-# or from a robot project directory:
-rosie drive
-```
-
-At the `target>` prompt:
-
-| Input | Action |
-|-------|--------|
-| `x y [x y …]` | `drive_route` — sequential goals (meters in the pose frame) |
-| `teleop` | Nested WASD teleop (same bindings as `rosie teleop`) |
-| `snap` | Capture a camera still (if camera configured) |
-| `cam` | Live camera view |
-| `zero` | Request pose zero |
-| `imu` | Toggle heading source |
-| `stop` | Emergency stop |
-| `quit` | Exit |
-
-`rosie teleop --robot <id>` is the dedicated WASD → `cmd_vel` tool when you
-only want keyboard driving (no waypoint REPL).
-
-### `rosie tune`
-
-Live velocity-PID tuning — see [Live tuning](#live-tuning) above.
-
-### Python (`rosie.MobileRobot`)
-
-Prefer `drive_to` (or `goto`) in scripts; use `drive_route` only as a short
-convenience:
-
-```python
-from rosie import MobileRobot
-with MobileRobot(config_path="robot.yaml") as bot:
-    bot.wait_for_pose()
-    bot.set_gains(kp=0.3)   # requires control.velocity / attached PID
-    bot.drive_to(1.0, 0.0)
-```
-
-Constructor kwargs, identity without `robot.yaml`, and the full method list:
-[MobileRobot](../host/mobile-robot.md). Raw `Session`:
-[Writing sessions](../host/writing-sessions.md).
+Methods, `drive` / `turn` / `drive_to`, and the drive REPL:
+[MobileRobot](../host/mobile-robot.md). Camera viewers: [Camera](camera.md)
+(`pip install "rosie-framework[camera]"` for OpenCV on the host).
 
 ## Related
 

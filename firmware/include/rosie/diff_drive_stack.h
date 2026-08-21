@@ -89,12 +89,11 @@
 #endif
 
 #include "rosie/diff_drive.h"
+#include "rosie/mcu_connect.h"
 #include "rosie/mobile_base.h"
 #include "rosie/motor_driver.h"
 #include "rosie/serial_shell.h"
 #include "rosie/velocity_controller.h"
-#include "rosie/wifi_softap.h"
-#include "rosie/wifi_station.h"
 
 #if defined(ROSIE_MOTORS_TB6612)
 #include "rosie/drivers/motors/tb6612.h"
@@ -132,8 +131,6 @@
 #define ROSIE_RANGE_CHIP_VL53L0X 1
 #endif
 #endif
-
-#include <string.h>
 
 namespace rosie {
 
@@ -204,8 +201,8 @@ class DiffDriveStack {
   SerialShell& shell() { return shell_; }
 
   /**
-   * Init hardware, Wi‑Fi, Zenoh (with retries), register built-in cmd ops,
-   * start camera publish task when present.
+   * Init hardware, then ``mcuConnect`` (Wi‑Fi + Zenoh retries), register built-in
+   * cmd ops, start camera publish task when present.
    */
   void begin(int zenoh_retries = 10) {
     motors_.begin();
@@ -327,28 +324,17 @@ class DiffDriveStack {
     }
 #endif
 
-    bool net_ok = false;
-    if (strcmp(ROSIE_NETWORK_MODE, "station") == 0) {
-      net_ok = wifiStation(ROSIE_WIFI_SSID, ROSIE_WIFI_PASSWORD);
-    } else {
-      softAP(ROSIE_WIFI_SSID, ROSIE_WIFI_PASSWORD, 1);
-      net_ok = true;
-    }
-
-    if (net_ok) {
-      for (int attempt = 1; attempt <= zenoh_retries; attempt++) {
-        Serial.printf("Rosie connect attempt %d/%d ...\n", attempt, zenoh_retries);
-        delay(1500);
-        if (base_.begin(ROSIE_ZENOH_CONNECT, ROSIE_ZENOH_MODE,
-                        ROSIE_ZENOH_USER, ROSIE_ZENOH_PASSWORD)) break;
-        if (attempt == zenoh_retries) {
-          Serial.println("Rosie not connected — USB serial still works.");
-          Serial.println("Start zenohd on the laptop and reset the board to retry.");
-        }
-      }
-    } else {
-      Serial.println("Rosie: skipping Zenoh (Wi-Fi not connected).");
-    }
+    McuConnectConfig net;
+    net.network_mode = ROSIE_NETWORK_MODE;
+    net.wifi_ssid = ROSIE_WIFI_SSID;
+    net.wifi_password = ROSIE_WIFI_PASSWORD;
+    net.softap_channel = 1;
+    net.zenoh_connect = ROSIE_ZENOH_CONNECT;
+    net.zenoh_mode = ROSIE_ZENOH_MODE;
+    net.zenoh_user = ROSIE_ZENOH_USER;
+    net.zenoh_password = ROSIE_ZENOH_PASSWORD;
+    net.zenoh_retries = zenoh_retries;
+    mcuConnect(base_, net);
 
 #if ROSIE_HAS_CAMERA
     if (cam_ && base_.ready()) {

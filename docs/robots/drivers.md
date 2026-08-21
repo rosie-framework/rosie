@@ -111,8 +111,8 @@ MCU only (Linux uses the OS network stack; set `network.connect` for Zenoh):
 
 | id | platforms | status | notes |
 |----|-----------|--------|-------|
-| `softap` | mcu | supported | Solo SoftAP fallback (`rosie::softAP`) |
-| `station` | mcu | supported | Join dedicated AP (`rosie::wifiStation`) |
+| `softap` | mcu | supported | Solo SoftAP fallback (`rosie::softAP`; also via `mcuConnect`) |
+| `station` | mcu | supported | Join dedicated AP (`rosie::wifiStation`; also via `mcuConnect`) |
 
 ## Bring your own driver
 

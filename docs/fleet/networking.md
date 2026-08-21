@@ -38,8 +38,9 @@ Bring-up:
    (e.g. `tcp/<laptop-ip>:7447` in `robot.yaml`). Only set `ROSIE_CONNECT` on
    hosts when the router is **not** on localhost (remote router machine).
 5. Flash / boot robots as **Wi‑Fi stations** on that SSID (not as SoftAPs).
-   Firmware: `network.mode: station` in `robot.yaml` (DiffDriveStack) or
-   `rosie::wifiStation(ssid, password)` for custom glue.
+   Firmware: `network.mode: station` in `robot.yaml` (DiffDriveStack /
+   `rosie::mcuConnect`) or `rosie::wifiStation(ssid, password)` for custom glue
+   that skips the shared retry helper.
 6. Check membership: `rosie fleet list --fleet <id>`.
 
 This works for **heterogeneous** fleets: ESP32 MCUs and Pi/Jetson robots are

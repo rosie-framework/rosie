@@ -107,14 +107,15 @@ class MobileBase {
   bool onCmd(const char* op, CmdHandler handler, void* user = nullptr);
 
   /**
-   * Bring up network externally (softAP / wifiStation), then call begin.
-   * Opens Session, declares topics. Retries are the caller's responsibility.
+   * Bring up network externally (``mcuConnect``, softAP / wifiStation), then call
+   * begin. Opens Session, declares topics. Retries are the caller's responsibility
+   * (or use ``mcuConnect``).
    */
   bool begin(const char* connect_locator, const char* mode = "client",
              const char* user = nullptr, const char* password = nullptr);
   bool ready() const;
 
-  /** Poll session + fixed-rate control + pose/presence publish. Call from loop(). */
+  /** Fixed-rate control + pose/presence publish. Call from loop(). */
   void spin();
 
   /** One control tick (odom + arbiter). Prefer spin(). */

@@ -3,7 +3,7 @@
 Host-side helper for robots that speak the **MobileBase** topic contract
 (`cmd_vel`, `goto` / `nav_result`, `pose`, `cmd`, …). Wraps a
 [`Session`](writing-sessions.md) for one robot. Interactive UX:
-[`rosie drive`](../robots/mobile-base.md#rosie-drive).
+[`rosie drive`](#rosie-drive).
 
 Sibling capability clients (e.g. an arm helper) would wrap `Session` the same
 way — there is no shared robot superclass.
@@ -70,11 +70,19 @@ connect) as seen on the bus.
 | `goto(x, y, goal_id=None)` | Fire-and-forget planar goal; you handle completion yourself via `nav_result` / `pose`. Returns `goal_id`. |
 | `drive_to(x, y)` | Scripted demos: send a goal and **block** until matching `nav_result` (prints progress; Ctrl-C → `stop`). |
 | `drive_route([(x,y), …])` | Visit several points in order — sequential `drive_to`, not a path planner. |
+| `drive(meters, speed=0.25)` | Drive a signed distance on wheel odometry. Negative `meters` reverses. |
+| `turn(degrees, rate_dps=60)` | Turn in place by a signed heading angle (degrees, +left / CCW). |
 | `teleop(v_fwd=…, v_turn=…)` | Interactive WASD driving on this robot (same idea as `rosie teleop`). |
 | `stop()` | Cancel motion now (motors stop; active goto → `nav_result` `canceled`). |
 
-Navigation ladder (`goto` → `pose` progress → `nav_result`):
-[Mobile base → Navigation helpers](../robots/mobile-base.md#navigation-helpers). Prefer `teleop()` on typical bridged ROS agents (see below).
+On the robot there are two motion paths: **MANUAL** (`cmd_vel` — used by
+`teleop`, `drive`, `turn`) and **AUTO** (`goto` / `drive_to`). See
+[Mobile base → Motion on the robot](../robots/mobile-base.md#motion-on-the-robot).
+
+`drive` / `turn` stream `cmd_vel` and stop from `pose` odometry (not onboard
+`goto`). They keep publishing faster than the teleop deadman. Prefer
+`teleop()` on typical bridged ROS agents unless you want these relative odom
+primitives (see below).
 
 ### Setup / tune
 
@@ -102,17 +110,49 @@ Frames are independent JPEGs published at `camera.pub_hz` — see
 |--------|----------|
 | `close()` / `with MobileRobot(...)` | Always close when done. Prefer the context manager. |
 
+## `rosie drive`
+
+Interactive REPL over `rosie.MobileRobot` for a MobileBase robot.
+Uses `robot.yaml` for identity (or `--robot` / `ROSIE_ROBOT`). Optional:
+`--fleet`, `--connect`, `--dir` (search for `robot.yaml`).
+
+```bash
+rosie drive --config robot.yaml
+# or from a robot project directory:
+rosie drive
+```
+
+At the `target>` prompt:
+
+| Input | Action |
+|-------|--------|
+| `x y [x y …]` | `drive_route` — sequential goals (meters in the pose frame) |
+| `teleop` | Nested WASD teleop (same bindings as `rosie teleop`) |
+| `snap` | Capture a camera still (if camera configured) |
+| `cam` | Live camera view |
+| `zero` | Request pose zero |
+| `imu` | Toggle heading source |
+| `stop` | Emergency stop |
+| `quit` | Exit |
+
+`rosie teleop --robot <id>` is the dedicated WASD → `cmd_vel` tool when you
+only want keyboard driving (no waypoint REPL). Drive REPL includes optional
+camera `snap` / `cam` when the robot publishes JPEG. OpenCV viewer:
+`pip install "rosie-framework[camera]"` (robots can publish
+`camera/compressed` without that extra). Full camera setup:
+[Camera](../robots/camera.md).
+
 ## Bridged ROS robots
 
 Typical [`rosie agent`](../robots/bridges.md) bridges `cmd_vel`, `pose`, and
-`presence` only. Prefer `teleop()` or a raw `Session` for those robots until
-`goto` / `nav_result` are bridged. Native MobileBase / DiffDriveStack robots
-support the full nav helpers above.
+`presence` only. Prefer `teleop()`, `drive` / `turn` (pose odometry + `cmd_vel`),
+or a raw `Session` for those robots until `goto` / `nav_result` are bridged.
+Native MobileBase / DiffDriveStack robots support the full nav helpers above.
 
 ## Related
 
 - [Writing sessions](writing-sessions.md) — raw `Session`
 - [Fleet](fleet.md) — fleet discovery / wait / estop
-- [Mobile base](../robots/mobile-base.md) — shared contract, topics, `rosie drive`
+- [Mobile base](../robots/mobile-base.md) — onboard contract, topics, motion paths
 - [Firmware](../robots/firmware.md) · [Linux run](../robots/linux-run.md) — platform assembly
 - [Bridges](../robots/bridges.md) — `rosie agent`

@@ -1,7 +1,7 @@
 """Standard relative topic names.
 
 Pass these to ``Session.publish`` / ``subscribe_*``; the session's robot
-(and optional fleet) prefixes them. A leading ``/`` makes a name absolute
+and fleet prefixes them. A leading ``/`` makes a name absolute
 (not prefixed). Fleet-scoped topics use ``Session.publish_fleet`` /
 ``resolve_fleet_name`` → ``{fleet}/_fleet/...``.
 """
@@ -16,6 +16,7 @@ NAV_RESULT = "nav_result"
 CMD = "cmd"
 CAMERA_COMPRESSED = "camera/compressed"
 PRESENCE = "presence"
+ROUTER = "router"
 CONTROL = "control"
 ENCODERS = "encoders"
 IMU = "imu"

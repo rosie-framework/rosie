@@ -1,4 +1,4 @@
-"""Rosie Session — Zenoh session bound to a robot (+ optional fleet)."""
+"""Rosie Session — Zenoh session bound to a robot and fleet."""
 
 from __future__ import annotations
 
@@ -11,6 +11,14 @@ from typing import Any
 
 import zenoh
 
+from .connect import (
+    AUTO_CONNECT,
+    DEFAULT_CONNECT,
+    SOFTAP_CONNECT,
+    is_auto_connect,
+    resolve_connect,
+    zenoh_config_pairs,
+)
 from .messages import decode_json, encode_json, stamp_now, with_stamp
 
 _RESERVED_ROBOT = "_fleet"
@@ -58,14 +66,15 @@ def qos_put_kwargs(qos: Qos = Qos.STREAM) -> dict[str, Any]:
     """Resolved ``Session.put`` kwargs for a delivery class (for tests / raw puts)."""
     return dict(_QOS_KWARGS[qos])
 
+# Re-exported for callers that imported these from session.
 # Host sessions default to the local router. MCU / remote robots still need an
 # explicit LAN locator in robot.yaml (or ROSIE_CONNECT when the host is remote).
-DEFAULT_CONNECT = "tcp/127.0.0.1:7447"
 
 
-def resolve_connect(connect: str | None = None) -> str:
-    """constructor arg → ROSIE_CONNECT → local router default."""
-    return connect or os.environ.get("ROSIE_CONNECT") or DEFAULT_CONNECT
+def apply_zenoh_config_pairs(conf: Any, pairs: list[tuple[str, str]]) -> Any:
+    for path, value in pairs:
+        conf.insert_json5(path, value)
+    return conf
 
 
 def _open_zenoh(
@@ -90,7 +99,7 @@ def _open_zenoh(
     )
 
     conf = zenoh.Config()
-    conf.insert_json5("connect/endpoints", f'["{connect}"]')
+    apply_zenoh_config_pairs(conf, zenoh_config_pairs(connect))
     if user and password:
         creds = BusCredentials(user=user, password=password)
     elif password is not None:
@@ -121,13 +130,10 @@ def _normalize_robot(robot: str) -> str:
     return robot
 
 
-def _normalize_fleet(fleet: str | None) -> str | None:
-    if fleet is None:
-        return None
-    fleet = str(fleet).strip().strip("/")
-    if not fleet:
-        return None
-    return _normalize_id(fleet, label="fleet")
+def _normalize_fleet(fleet: str | None) -> str:
+    if fleet is None or not str(fleet).strip().strip("/"):
+        raise ValueError("fleet is required (pass fleet= or set ROSIE_FLEET)")
+    return _normalize_id(str(fleet), label="fleet")
 
 
 class Session:
@@ -135,10 +141,10 @@ class Session:
 
     Identity:
       - ``robot`` (required): topic boundary
-      - ``fleet`` (optional): when set, robot topics are ``{fleet}/{robot}/...``
+      - ``fleet`` (required): robot topics are ``{fleet}/{robot}/...``
 
     Resolution order for connect / robot / fleet:
-      constructor arg → env (ROSIE_CONNECT / ROSIE_ROBOT / ROSIE_FLEET) → defaults
+      constructor arg → env (ROSIE_CONNECT / ROSIE_ROBOT / ROSIE_FLEET)
       (connect defaults to ``tcp/127.0.0.1:7447`` — local ``rosie router``)
     """
 
@@ -157,11 +163,21 @@ class Session:
         self.robot = _normalize_robot(
             robot or os.environ.get("ROSIE_ROBOT") or "robot"
         )
-        env_fleet = os.environ.get("ROSIE_FLEET")
         self.fleet = _normalize_fleet(
-            fleet if fleet is not None else env_fleet
+            fleet if fleet is not None else os.environ.get("ROSIE_FLEET")
         )
-        self.connect = resolve_connect(connect)
+        requested = resolve_connect(connect)
+        if is_auto_connect(requested):
+            from .discovery import resolve_auto_connect
+
+            self.connect = resolve_auto_connect(
+                self.fleet,
+                user=user,
+                password=password,
+                secure=secure,
+            )
+        else:
+            self.connect = requested
         self.session = _open_zenoh(
             self.connect,
             user=user,
@@ -208,15 +224,12 @@ class Session:
     # --- topic names -------------------------------------------------
 
     def _robot_prefix(self) -> str:
-        if self.fleet:
-            return f"{self.fleet}/{self.robot}"
-        return self.robot
+        return f"{self.fleet}/{self.robot}"
 
     def resolve_name(self, name: str) -> str:
         """Resolve a topic name to a Zenoh keyexpr.
 
-        - Relative (``\"cmd_vel\"``) → ``\"{robot}/cmd_vel\"`` or
-          ``\"{fleet}/{robot}/cmd_vel\"``
+        - Relative (``\"cmd_vel\"``) → ``\"{fleet}/{robot}/cmd_vel\"``
         - Absolute (``\"/global/estop\"``) → ``\"global/estop\"``
         """
         if not name or not str(name).strip():
@@ -228,8 +241,6 @@ class Session:
 
     def resolve_fleet_name(self, name: str) -> str:
         """Resolve a fleet-scoped topic: ``{fleet}/_fleet/{name}``."""
-        if not self.fleet:
-            raise ValueError("fleet is required for fleet-scoped topics")
         if not name or not str(name).strip():
             raise ValueError("topic name must be non-empty")
         name = str(name).strip().lstrip("/")

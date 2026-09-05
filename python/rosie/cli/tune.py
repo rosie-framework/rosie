@@ -113,7 +113,7 @@ def _tune_common(
     p: argparse.ArgumentParser, *, config_required: bool = False
 ) -> None:
     p.add_argument("--robot", default=None, help="robot id (or from --config)")
-    p.add_argument("--fleet", default=None, help="optional fleet id")
+    p.add_argument("--fleet", default=None, help="fleet id (default: robot.yaml / ROSIE_FLEET)")
     p.add_argument("--connect", default=None, help="override ROSIE_CONNECT")
     p.add_argument(
         "--config",

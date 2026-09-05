@@ -22,9 +22,10 @@ class MotorDriver {
   virtual void setChannels(const float* cmds, size_t n) = 0;
 };
 
+/** Duty floor/ceiling as a fraction of full timer range; ``res`` sets tick count. */
 struct PwmShaping {
-  float min_pwm = 0.0f;
-  float max_pwm = 255.0f;
+  float min_pwm = 0.1f;
+  float max_pwm = 1.0f;
   int freq = 20000;
   int res = 8;
 };

@@ -128,7 +128,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     p_drive.add_argument(
         "--fleet",
         default=os.environ.get("ROSIE_FLEET"),
-        help="optional fleet id",
+        help="fleet id (default: robot.yaml / ROSIE_FLEET)",
     )
     p_drive.add_argument("--connect", default=None, help="override ROSIE_CONNECT")
     p_drive.add_argument(

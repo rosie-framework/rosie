@@ -69,11 +69,13 @@ class MobileRobot:
             from rosie.robot_config import load_robot_config
 
             cfg = load_robot_config(config_path)
+            from .connect import is_auto_connect
+
             robot = robot or cfg.robot
             fleet = fleet if fleet is not None else cfg.fleet
-            connect = connect or cfg.connect
+            if connect is None and not is_auto_connect(cfg.connect):
+                connect = cfg.connect
             teleop = (cfg.raw.get("control") or {}).get("teleop") or {}
-            # Historical host teleop uses m/s; YAML kv/kw are firmware PWM gains.
             self._v_fwd = float(teleop.get("v_fwd", 0.25))
             self._v_turn = float(teleop.get("v_turn", 1.2))
             # Prefer explicit password from robot.yaml when present.

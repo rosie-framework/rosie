@@ -66,6 +66,10 @@ def cmd_fleet_list(args: argparse.Namespace) -> int:
         ignored = []
         if secure and manifest is not None and not args.all:
             ignored = fleet.ignored_robots(ttl_s=args.ttl, wait_s=0.0)
+        router = fleet.router(wait_s=0.0)
+        if router:
+            locs = ", ".join(router.get("locators") or []) or "—"
+            print(f"Router {kw['fleet']}: {locs}")
         if not robots:
             print(f"No robots seen in fleet {kw['fleet']!r} (ttl={args.ttl}s).")
             if secure and manifest is None:

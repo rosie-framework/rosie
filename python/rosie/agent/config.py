@@ -11,7 +11,13 @@ import yaml
 
 DEFAULT_CONFIG_NAME = "agent.yaml"
 DEFAULT_PROFILE = "default_ros2"
-KNOWN_PROFILES = ("default_ros2", "turtlebot3", "turtlebot4")
+KNOWN_PROFILES = (
+    "default_ros2",
+    "turtlebot3",
+    "turtlebot4",
+    "rosmaster_x3",
+    "rosmaster_m3_pro",
+)
 
 
 @dataclass
@@ -25,6 +31,9 @@ class AgentConfig:
     fleet_secret: str | None = None
     cmd_vel: str = "/cmd_vel"
     odom: str = "/odom"
+    pose: str | None = None
+    navigate_to_pose: str = "/navigate_to_pose"
+    frame_id: str = "map"
     profile: str | None = None
     path: Path | None = None
     raw: dict[str, Any] = field(default_factory=dict)
@@ -44,7 +53,11 @@ class AgentConfig:
         ros2: dict[str, Any] = {
             "cmd_vel": self.cmd_vel,
             "odom": self.odom,
+            "navigate_to_pose": self.navigate_to_pose,
+            "frame_id": self.frame_id,
         }
+        if self.pose:
+            ros2["pose"] = self.pose
         if self.profile:
             ros2["profile"] = self.profile
         out["ros2"] = ros2
@@ -154,12 +167,18 @@ def load_agent_config(
         fleet_id = os.environ.get("ROSIE_FLEET")
     if fleet_id == "" or fleet_id is False:
         fleet_id = None
+    if not fleet_id:
+        raise ValueError("fleet is required (agent.yaml fleet, --fleet, or ROSIE_FLEET)")
 
     connect_id = connect
     if connect_id is None:
         connect_id = raw.get("connect")
     if connect_id is None:
         connect_id = os.environ.get("ROSIE_CONNECT")
+    if connect_id is None or str(connect_id).strip() == "":
+        from rosie.connect import AUTO_CONNECT
+
+        connect_id = AUTO_CONNECT
 
     user = raw.get("user")
     fleet_secret = raw.get("fleet_secret")
@@ -172,7 +191,17 @@ def load_agent_config(
         fleet_secret=str(fleet_secret).strip() if fleet_secret else None,
         cmd_vel=str(ros2.get("cmd_vel", "/cmd_vel")),
         odom=str(ros2.get("odom", "/odom")),
+        pose=_optional_str(ros2.get("pose")),
+        navigate_to_pose=str(ros2.get("navigate_to_pose", "/navigate_to_pose")),
+        frame_id=str(ros2.get("frame_id", "map")),
         profile=str(ros2.get("profile", prof_name)),
         path=cfg_path,
         raw=raw,
     )
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

@@ -113,7 +113,7 @@ def _run_pio(
     return subprocess.call(cmd, cwd=str(cwd), env=env)
 
 
-def _maybe_gen_config(project_dir: Path) -> None:
+def _maybe_gen_config(project_dir: Path, *, connect: str | None = None) -> None:
     """If robot.yaml exists, sync host secret when resolvable, then regenerate header."""
     from rosie.auth import maybe_sync_secret_for_robot_config
     from rosie.robot_config import (
@@ -131,7 +131,7 @@ def _maybe_gen_config(project_dir: Path) -> None:
         if maybe_sync_secret_for_robot_config(yml, cfg.raw):
             print(f"Synced bus secret → {yml.name}")
             cfg = load_robot_config(yml)
-        out = write_robot_config_h(cfg, project_dir)
+        out = write_robot_config_h(cfg, project_dir, connect_override=connect)
         print(f"Generated {out} from {yml.name}")
         warn = warn_jpeg_quality_scale(cfg)
         if warn:
@@ -159,7 +159,7 @@ def cmd_gen_config(args: argparse.Namespace) -> int:
     if maybe_sync_secret_for_robot_config(yml, cfg.raw):
         print(f"Synced bus secret → {yml.name}")
         cfg = load_robot_config(yml)
-    out = write_robot_config_h(cfg, cwd)
+    out = write_robot_config_h(cfg, cwd, connect_override=args.connect)
     print(f"Wrote {out}")
     warn = warn_jpeg_quality_scale(cfg)
     if warn:
@@ -170,7 +170,7 @@ def cmd_gen_config(args: argparse.Namespace) -> int:
 def cmd_build(args: argparse.Namespace) -> int:
     cwd = Path(args.dir).expanduser().resolve()
     env = _prepare_firmware(cwd)
-    _maybe_gen_config(cwd)
+    _maybe_gen_config(cwd, connect=getattr(args, "connect", None))
     pio_args = ["run"]
     if args.env:
         pio_args.extend(["-e", args.env])
@@ -180,7 +180,7 @@ def cmd_build(args: argparse.Namespace) -> int:
 def cmd_flash(args: argparse.Namespace) -> int:
     cwd = Path(args.dir).expanduser().resolve()
     env = _prepare_firmware(cwd)
-    _maybe_gen_config(cwd)
+    _maybe_gen_config(cwd, connect=getattr(args, "connect", None))
     pio_args = ["run", "-t", "upload"]
     if args.env:
         pio_args.extend(["-e", args.env])
@@ -213,7 +213,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
     """Link Rosie firmware into the project, then warm PlatformIO packages."""
     cwd = Path(args.dir).expanduser().resolve()
     env = _prepare_firmware(cwd, link_project=True)
-    _maybe_gen_config(cwd)
+    _maybe_gen_config(cwd, connect=getattr(args, "connect", None))
     _require_platformio()
 
     print("Installing PlatformIO packages for this project…")
@@ -233,6 +233,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     cwd = Path(args.dir).expanduser().resolve()
     cwd.mkdir(parents=True, exist_ok=True)
     robot_id = args.robot or "mybot"
+    fleet_id = args.fleet or os.environ.get("ROSIE_FLEET")
+    if not fleet_id:
+        print("error: --fleet or ROSIE_FLEET is required", file=sys.stderr)
+        return 2
 
     yml_path = cwd / "robot.yaml"
     if yml_path.exists() and not args.force:
@@ -240,13 +244,13 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 2
 
     yml = f"""robot: {robot_id}
-fleet: null
+fleet: {fleet_id}
 
 network:
   mode: softap
   ssid: {robot_id}-AP
   password: rosie-robot
-  connect: tcp/192.168.4.2:7447
+  connect: tcp/192.168.4.2:7447  # SoftAP laptop. Station: auto (codegen bakes LAN IP)
   zenoh_mode: client
 
 base:
@@ -258,7 +262,7 @@ base:
 motors:
   driver: tb6612
   pins: {{ pwmA: 45, ain1: 42, ain2: 47, pwmB: 46, bin1: 48, bin2: 21 }}
-  pwm: {{ freq: 20000, res: 8, min: 55, max: 100 }}
+  pwm: {{ freq: 20000, res: 8, min: 0.1, max: 1.0 }}
 
 encoders:
   driver: quad_encoder
@@ -267,7 +271,8 @@ encoders:
 
 control:
   dt_ms: 20
-  teleop: {{ kv: 180, kw: 40, timeout_ms: 400, v_fwd: 0.25, v_turn: 1.2 }}
+  # v_full: wheel m/s at |channel|=1 (open-loop FF). WASD: v_fwd / v_turn
+  teleop: {{ v_full: 1.0, timeout_ms: 400, v_fwd: 0.25, v_turn: 1.2 }}
   # Outer loop: pose → Twist (m/s, rad/s)
   goto:
     kp_linear: 0.8
@@ -388,9 +393,10 @@ lib_deps =
     print()
     print("Next:")
     print(f"  1. Edit {yml_path.name} (pins, SSID, geometry)")
-    print("  2. rosie mcu setup   # while online")
-    print("  3. rosie mcu flash")
-    print(f"  4. rosie drive --config {yml_path}")
+    print(f"  2. rosie fleet add --fleet {fleet_id} --from {yml_path.name}")
+    print("  3. rosie mcu setup   # while online")
+    print("  4. rosie mcu flash")
+    print(f"  5. rosie drive --config {yml_path}")
     return 0
 
 
@@ -412,6 +418,11 @@ def _add_common(p: argparse.ArgumentParser) -> None:
         "--env",
         default=None,
         help="PlatformIO environment name (-e)",
+    )
+    p.add_argument(
+        "--connect",
+        default=None,
+        help="override network.connect for codegen (tcp/<ip>:7447)",
     )
     p.add_argument(
         "extra",
@@ -453,6 +464,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     p_init.add_argument("--dir", default=".", help="project directory (default: cwd)")
     p_init.add_argument("--robot", default="mybot", help="robot id (default: mybot)")
     p_init.add_argument(
+        "--fleet",
+        default=os.environ.get("ROSIE_FLEET"),
+        help="fleet id (required; default: ROSIE_FLEET). Create with `rosie fleet init`.",
+    )
+    p_init.add_argument(
         "--board",
         default="esp32-s3-devkitc-1",
         help="PlatformIO board id (default: esp32-s3-devkitc-1)",
@@ -470,6 +486,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     p_gen.add_argument("--dir", default=".", help="project directory (default: cwd)")
     p_gen.add_argument("--file", default=None, help="path to robot.yaml (optional)")
+    p_gen.add_argument(
+        "--connect",
+        default=None,
+        help="override network.connect for codegen (tcp/<ip>:7447)",
+    )
     p_gen.set_defaults(func=cmd_gen_config)
 
     p_build = mcu_sub.add_parser("build", help="build firmware (wraps `pio run`)")

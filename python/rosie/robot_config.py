@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .connect import AUTO_CONNECT, SOFTAP_CONNECT, is_auto_connect
+
 SUPPORTED_BASE = frozenset({"diff_drive"})
 PLANNED_BASE = frozenset({"mecanum", "ackermann"})
 SUPPORTED_VELOCITY = frozenset({"pid"})
@@ -18,6 +20,8 @@ DEFAULT_JPEG_QUALITY = 70
 MAX_RANGE_SENSORS = 4
 RANGE_MEDIAN_WINDOW = 5
 RANGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+# proto/host:port — host may be a name or IPv4.
+CONNECT_LOCATOR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+.-]*/.+:\d+$")
 VL53_RANGE_CHIPS = frozenset({"vl53l0x", "vl53l1x"})
 # MCU codegen chip codes (must match DiffDriveStack).
 RANGE_CHIP_VL53L1X = 0
@@ -153,6 +157,97 @@ def _require_supported(
 
 
 @dataclass
+class ResolvedConnect:
+    """How ``network.connect`` should be interpreted for a given consumer."""
+
+    requested: str
+    """Value host/Linux consumers should see (``auto`` or an explicit locator)."""
+    locator: str
+    """MCU firmware locator (``auto`` already resolved to a LAN IP)."""
+    provenance: str
+    candidates: list[str] = field(default_factory=list)
+
+
+def _raw_connect(net: dict[str, Any]) -> str | None:
+    raw = net.get("connect")
+    if raw is None or str(raw).strip() == "":
+        return None
+    return str(raw).strip()
+
+
+def requested_connect(cfg: RobotConfig) -> str:
+    """Connect string host/Linux consumers should see (never does LAN lookup)."""
+    net = cfg.raw.get("network") or {}
+    raw = _raw_connect(net)
+    if raw is not None:
+        validate_connect_value(raw)
+        if not is_auto_connect(raw):
+            return raw
+    mode = str(net.get("mode", "softap")).strip().lower()
+    if is_auto_connect(raw) or cfg.platform == "linux" or mode == "station":
+        return AUTO_CONNECT
+    return SOFTAP_CONNECT
+
+
+def validate_connect_value(value: str) -> None:
+    """Accept ``auto`` / ``scout`` or ``<proto>/<host>:<port>``."""
+    if is_auto_connect(value):
+        return
+    if CONNECT_LOCATOR_RE.match(value):
+        return
+    raise ValueError(
+        f"robot.yaml: network.connect must be 'auto' or "
+        f"<proto>/<host>:<port> (got {value!r})"
+    )
+
+
+def resolve_robot_connect(
+    cfg: RobotConfig,
+    *,
+    override: str | None = None,
+    lan_ips: list[str] | None = None,
+) -> ResolvedConnect:
+    """Resolve ``network.connect`` for MCU codegen and host/Linux consumers.
+
+    Explicit locators always win. ``auto`` (or omitted station / linux) stays
+    ``auto`` for Linux/host; MCU codegen bakes the router-host LAN IP.
+    Omitted SoftAP stays ``tcp/192.168.4.2:7447``.
+    """
+    from .netinfo import lan_locator, local_ipv4s
+
+    if override is not None and str(override).strip():
+        ov = str(override).strip()
+        validate_connect_value(ov)
+        if not is_auto_connect(ov):
+            return ResolvedConnect(
+                requested=ov, locator=ov, provenance="cli --connect"
+            )
+
+    requested = requested_connect(cfg)
+    if not is_auto_connect(requested):
+        raw = _raw_connect(cfg.raw.get("network") or {})
+        provenance = "robot.yaml" if raw else "softap default"
+        return ResolvedConnect(
+            requested=requested, locator=requested, provenance=provenance
+        )
+
+    ips = list(lan_ips) if lan_ips is not None else local_ipv4s()
+    if not ips:
+        raise ValueError(
+            "network.connect is auto but no LAN IPv4 was detected. "
+            "Pass --connect tcp/<router-host-ip>:7447 or join a network."
+        )
+    locator = lan_locator(ips[0])
+    others = [lan_locator(ip) for ip in ips[1:]]
+    return ResolvedConnect(
+        requested=AUTO_CONNECT,
+        locator=locator,
+        provenance=f"auto → {ips[0]}",
+        candidates=others,
+    )
+
+
+@dataclass
 class RobotConfig:
     raw: dict[str, Any]
     path: Path | None = None
@@ -170,7 +265,13 @@ class RobotConfig:
 
     @property
     def connect(self) -> str:
-        return str(self.raw.get("network", {}).get("connect", "tcp/192.168.4.2:7447"))
+        """Unresolved connect string for host / Linux consumers.
+
+        ``auto`` is returned as-is (Linux scouts; host tools treat it as
+        unset). Omitted station / linux defaults to ``auto``; omitted SoftAP
+        stays ``tcp/192.168.4.2:7447``.
+        """
+        return requested_connect(self)
 
     @property
     def network_mode(self) -> str:
@@ -191,8 +292,6 @@ class RobotConfig:
         if u is None or u == "":
             if self.fleet:
                 return self.fleet
-            if self.fleet_secret:
-                return "rosie"
             return None
         return str(u)
 
@@ -240,6 +339,9 @@ def load_robot_config(path: str | Path) -> RobotConfig:
 def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | None = None) -> None:
     if "robot" not in raw or not str(raw["robot"]).strip():
         raise ValueError("robot.yaml: missing required field 'robot'")
+    fleet = raw.get("fleet")
+    if fleet is None or fleet is False or not str(fleet).strip():
+        raise ValueError("robot.yaml: missing required field 'fleet'")
     entries = registry if registry is not None else load_registry()
 
     platform = str(raw.get("platform", "mcu") or "mcu").strip().lower()
@@ -248,8 +350,12 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
             f"robot.yaml: platform must be 'mcu' or 'linux' (got {platform!r})"
         )
 
+    net = raw.get("network") or {}
+    connect = net.get("connect")
+    if connect is not None and str(connect).strip():
+        validate_connect_value(str(connect).strip())
+
     if platform == "mcu":
-        net = raw.get("network") or {}
         mode = str(net.get("mode", "softap"))
         mode = _resolve_id(mode, entries, "network")
         _require_supported(entries, mode, "network", platform=platform)
@@ -280,6 +386,24 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
                     raise ValueError(
                         f"robot.yaml: motors.driver=tb6612 requires motors.pins.{key}"
                     )
+        pwm = motors.get("pwm") or {}
+        if "min" in pwm or "max" in pwm:
+            try:
+                pmin = float(pwm.get("min", 0.1))
+                pmax = float(pwm.get("max", 1.0))
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    "robot.yaml: motors.pwm.min and motors.pwm.max must be numbers"
+                ) from e
+            if not 0.0 <= pmin <= 1.0 or not 0.0 <= pmax <= 1.0:
+                raise ValueError(
+                    "robot.yaml: motors.pwm.min and motors.pwm.max must be in [0, 1] "
+                    "(fraction of full PWM; res sets timer bits)"
+                )
+            if pmin > pmax:
+                raise ValueError(
+                    "robot.yaml: motors.pwm.min must be <= motors.pwm.max"
+                )
     elif platform == "linux":
         raise ValueError("robot.yaml: motors section required for platform: linux")
 
@@ -369,6 +493,24 @@ def validate_robot_config(raw: dict[str, Any], registry: list[DriverEntry] | Non
     _validate_range_section(raw, entries, platform=platform)
 
     control = raw.get("control") or {}
+    teleop = control.get("teleop") or {}
+    if teleop:
+        if not isinstance(teleop, dict):
+            raise ValueError("robot.yaml: control.teleop must be a mapping")
+        if "k_ff" in teleop:
+            raise ValueError(
+                "robot.yaml: control.teleop.k_ff was removed; use "
+                "control.teleop.v_full (wheel m/s at |channel|=1)"
+            )
+        if "v_full" in teleop:
+            try:
+                v_full = float(teleop["v_full"])
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    "robot.yaml: control.teleop.v_full must be a number"
+                ) from e
+            if v_full <= 0:
+                raise ValueError("robot.yaml: control.teleop.v_full must be > 0")
     velocity = control.get("velocity")
     if velocity is not None:
         if not isinstance(velocity, dict):
@@ -539,7 +681,12 @@ def _c_int(v: Any, default: int = 0) -> str:
         return str(default)
 
 
-def generate_robot_config_h(cfg: RobotConfig) -> str:
+def generate_robot_config_h(
+    cfg: RobotConfig,
+    *,
+    connect_override: str | None = None,
+    lan_ips: list[str] | None = None,
+) -> str:
     """Emit C++ header with constants for the robot firmware."""
     if cfg.platform == "linux":
         raise ValueError(
@@ -548,6 +695,9 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
         )
     r = cfg.raw
     net = r.get("network") or {}
+    resolved = resolve_robot_connect(
+        cfg, override=connect_override, lan_ips=lan_ips
+    )
     base = r.get("base") or {}
     motors = r.get("motors") or {}
     motor_drv = str(motors.get("driver", "tb6612"))
@@ -573,15 +723,17 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
     cam_pins = cam.get("pins") or {}
 
     fleet = cfg.fleet
-    fleet_line = (
-        f"static const char* ROSIE_FLEET_ID = {_c_str(fleet)};"
-        if fleet
-        else "static const char* ROSIE_FLEET_ID = nullptr;"
-    )
+    if not fleet:
+        raise ValueError("robot.yaml: missing required field 'fleet'")
+    fleet_line = f"static const char* ROSIE_FLEET_ID = {_c_str(fleet)};"
 
+    extra_connect = ""
+    if resolved.candidates:
+        extra_connect = "; other LAN: " + ", ".join(resolved.candidates)
     lines = [
         "// AUTO-GENERATED by `rosie mcu gen-config` — do not edit by hand.",
         "// Source: robot.yaml",
+        f"// Zenoh connect: {resolved.locator} ({resolved.provenance}{extra_connect})",
         "//",
         "// Prefer <rosie/diff_drive_stack.h> (include this header after this one)",
         "// so you do not wire ROSIE_* values by hand. Typical main.cpp:",
@@ -603,7 +755,7 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
         f"static const char* ROSIE_NETWORK_MODE = {_c_str(str(net.get('mode', 'softap')))};",
         f"static const char* ROSIE_WIFI_SSID = {_c_str(str(net.get('ssid', '')))};",
         f"static const char* ROSIE_WIFI_PASSWORD = {_c_str(str(net.get('password', '')))};",
-        f"static const char* ROSIE_ZENOH_CONNECT = {_c_str(str(net.get('connect', 'tcp/192.168.4.2:7447')))};",
+        f"static const char* ROSIE_ZENOH_CONNECT = {_c_str(resolved.locator)};",
         f"static const char* ROSIE_ZENOH_MODE = {_c_str(str(net.get('zenoh_mode', 'client')))};",
     ]
     # Auth (optional): emit SHA-256 hex of fleet_secret to match host zenoh usrpwd hashing.
@@ -662,8 +814,8 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
     lines += [
         f"static const int ROSIE_PWM_FREQ = {_c_int(pwm.get('freq', 20000))};",
         f"static const int ROSIE_PWM_RES = {_c_int(pwm.get('res', 8))};",
-        f"static const float ROSIE_MIN_PWM = {_c_float(pwm.get('min', 55))};",
-        f"static const float ROSIE_MAX_PWM = {_c_float(pwm.get('max', 100))};",
+        f"static const float ROSIE_MIN_PWM = {_c_float(pwm.get('min', 0.1))};",
+        f"static const float ROSIE_MAX_PWM = {_c_float(pwm.get('max', 1.0))};",
         "",
         f"#define ROSIE_HAS_ENCODERS {1 if has_encoders else 0}",
     ]
@@ -691,8 +843,7 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
     lines += [
         "",
         f"static const unsigned long ROSIE_DT_MS = {_c_int(control.get('dt_ms', 20))}UL;",
-        f"static const float ROSIE_TELEOP_KV = {_c_float(teleop.get('kv', 180))};",
-        f"static const float ROSIE_TELEOP_KW = {_c_float(teleop.get('kw', 40))};",
+        f"static const float ROSIE_TELEOP_V_FULL = {_c_float(teleop.get('v_full', 1.0))};",
         f"static const unsigned long ROSIE_TELEOP_TIMEOUT_MS = {_c_int(teleop.get('timeout_ms', 400))}UL;",
         f"static const float ROSIE_KP_LINEAR = {_c_float(goto.get('kp_linear', 0.8))};",
         f"static const float ROSIE_KP_ANGULAR = {_c_float(goto.get('kp_angular', 1.5))};",
@@ -887,11 +1038,28 @@ def generate_robot_config_h(cfg: RobotConfig) -> str:
     return "\n".join(lines)
 
 
-def write_robot_config_h(cfg: RobotConfig, project_dir: str | Path) -> Path:
+def write_robot_config_h(
+    cfg: RobotConfig,
+    project_dir: str | Path,
+    *,
+    connect_override: str | None = None,
+    lan_ips: list[str] | None = None,
+) -> Path:
+    resolved = resolve_robot_connect(
+        cfg, override=connect_override, lan_ips=lan_ips
+    )
+    print(f"  Zenoh connect: {resolved.locator} ({resolved.provenance})")
+    if resolved.candidates:
+        print("  other LAN candidates: " + ", ".join(resolved.candidates))
     out_dir = Path(project_dir).expanduser().resolve() / "src" / "generated"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "robot_config.h"
-    out.write_text(generate_robot_config_h(cfg), encoding="utf-8")
+    out.write_text(
+        generate_robot_config_h(
+            cfg, connect_override=connect_override, lan_ips=lan_ips
+        ),
+        encoding="utf-8",
+    )
     return out
 
 

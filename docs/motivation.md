@@ -1,14 +1,14 @@
 # Motivation
 
 Rosie is the easy **fleet layer** for mixed robots — MCU, Linux, and ROS —
-from a normal laptop. It aims to be easy to get started with for teaching and
-research, and extensible enough for real projects — while optimizing for goals
-where heavier stacks (notably ROS 2 as a full on-robot + laptop install) are a
-poor fit for **multi-robot teams**.
+from a normal laptop. It aims to be easy to get started with for **multi-robot
+research** (including field deployments), and extensible enough for real
+projects — while optimizing for goals where heavier stacks (notably ROS 2 as a
+full on-robot + laptop install) are a poor fit for **multi-robot teams**.
 
 It is **not** a replacement for ROS 2’s ecosystem, and **not** a facility
 fleet manager like Open-RMF or FreeFleet. Those sit at different layers; Rosie
-fills the gap between them: **bring-up and operate a mixed lab team in
+fills the gap between them: **bring-up and operate a heterogeneous team in
 minutes.**
 
 ## Differentiators
@@ -24,12 +24,12 @@ minutes.**
    Open-RMF / FreeFleet are **task / traffic / facility** orchestrators on top
    of ROS-class robots. Rosie is lower and thinner: robot + fleet as real
    identity, presence, `fleet list` / `wait` / `estop`, and fleet-scoped
-   `topic` / `viz` / `bag` from a brokered router — fleet *ops for lab
-   bring-up*, not warehouse dispatch.
+   `topic` / `viz` / `bag` from a brokered router — fleet *ops for research
+   bring-up and field use*, not warehouse dispatch.
 3. **Minutes to a working bus on a normal laptop.**
   `pip install` on macOS, Linux, or Windows. Zenoh + Python host tooling. No
-   DDS/RMW wrestling, no Ubuntu robot PC required for the laptop. Teaching
-   labs and desk demos start from a shared AP + `rosie router`.
+   DDS/RMW wrestling, no Ubuntu robot PC required for the laptop. Research
+   labs and field sites start from a shared AP + `rosie router`.
 4. **MCU is a first-class native citizen.**
   ESP32 runs zenoh-pico + DiffDriveStack from one `robot.yaml` — not
    Micro-ROS / DDS / XRCE on a constrained board. DIY Linux uses the same YAML
@@ -114,7 +114,7 @@ Fleets only matter if people can actually stand them up.
 2. **Works cleanly on a laptop.**
   Host tooling is Zenoh + Python. Join a shared Wi‑Fi (dedicated travel
    router for fleets, or SoftAP for a single MCU) → `rosie router` → teleop /
-   viz. Teaching labs and desk demos do not need an Ubuntu robot PC for the
+   viz. Research labs and field sites do not need an Ubuntu robot PC for the
    laptop.
 3. **Optional bus security without SROS2.**
   Open by default for SoftAP / ESP32 demos. On shared Wi‑Fi, `rosie router  --secure` (and fleet tools with `--secure`) turns on Zenoh usrpwd plus
@@ -134,7 +134,7 @@ Fleets only matter if people can actually stand them up.
   Native: `DiffDriveStack` / `MobileBase` (MCU) or `rosie run` (Linux) give
    teleop / goto / deadman / common chip drivers without assembling
    `ros2_control`. Bridged: reuse the robot’s existing stack; agent maps
-   `cmd_vel` / odom / presence into the fleet contract.
+   `cmd_vel` / odom / presence / `goto` (Nav2) into the fleet contract.
 7. **Simpler mental model.**
   A **Session** is a process-local Zenoh handle bound to a robot. Sensors and
    commands are **topics under that robot**, not a separate graph node per
@@ -184,7 +184,7 @@ never need firmware tooling.
 | Install (host)               | Distro / apt / robostack; heavy tooling     | `pip install rosie-framework` (+ optional extras)                                  |
 | macOS / Windows host         | Possible but painful (DDS, RMW)             | First-class: Zenoh + Python                                                        |
 | Transport                    | DDS via RMW                                 | Zenoh (`rosie router` / zenohd)                                                    |
-| Discovery                    | Flat multicast peer discovery               | Brokered clients → router; presence for membership                                 |
+| Discovery                    | Flat multicast peer discovery               | Brokered clients → router; `auto` scouts then verifies fleet                       |
 | Wire format                  | CDR / IDL                                   | JSON (+ raw bytes for images)                                                      |
 | Messages                     | `.msg` / `.idl` per package                 | Single `std_msgs.yaml` → Python + C++                                              |
 | Native robot description     | URDF/xacro + often `ros2_control`           | Single `robot.yaml` → MCU firmware **or** `rosie run`                              |
@@ -198,7 +198,7 @@ never need firmware tooling.
 | Process model                | Node ≈ graph participant                    | **Session** = process handle; topics under a robot                                 |
 | QoS / TF / ROS actions       | Full stack                                  | Fixed delivery classes ([Conventions](conventions.md#delivery-and-validity)); goals use `goto` + `nav_result`; no TF / ROS actions |
 | Bags                         | Mature `rosbag2`                            | Fleet JSONL `.rosiebag` (+ gzip, MCAP export)                                      |
-| Teaching / research bring-up | Hours–days for a clean install              | Shared AP + `rosie router` + teleop in minutes                                     |
+| Research / field bring-up    | Hours–days for a clean install              | Shared AP + `rosie router` + teleop in minutes                                     |
 | Bus auth                     | SROS2 / DDS security (heavy)                | Open by default; `--secure` for usrpwd + allowlist ([Security](fleet/security.md)) |
 
 
@@ -207,7 +207,7 @@ never need firmware tooling.
 ## What we keep from ROS 2
 
 - Processes that **publish and subscribe**
-- **Topics** with structured keys under a robot (+ optional fleet)
+- **Topics** with structured keys under a robot and fleet
 - **Shared message contracts** across languages
 - Relative vs absolute topic names
 - Fleet-scoped **introspection** and **bags**; navigation goals via ordinary
@@ -239,13 +239,13 @@ viz, and `rosie mcu …`
 | Tooling assumes one machine’s graph                | Fleet-scoped `topic list` / `echo` / `bag` / `viz` from the router          |
 | Launch doesn’t compose into “bring up the team”    | Fleet manifest + `fleet wait`; overlays, not remaps                         |
 | Commercial robot already has ROS                   | Keep it; `rosie agent` joins the Rosie fleet                                |
-| MCU + host + Linux robots on a shared demo network | Zenoh **clients** → `rosie router`; dedicated AP for fleets                 |
+| MCU + host + Linux robots on a shared field network | Zenoh **clients** → `rosie router`; dedicated AP for fleets                |
 | Message definitions drift between Python and C++   | Single `interfaces/std_msgs.yaml` → generate both                           |
 | Opaque binary wires                                | JSON payloads (plus raw bytes for images)                                   |
-| Heavy install for a teaching fleet                 | `pip install rosie-framework` + optional `[mcu]` / `[linux]`                |
+| Heavy install for a research fleet                 | `pip install rosie-framework` + optional `[mcu]` / `[linux]`                |
 | Driving a native car requires many packages        | `robot.yaml` + DiffDriveStack or `rosie run`                                |
 | MCU path still looks like ROS (Micro-ROS)          | Native zenoh-pico firmware; ROS optional via bridge only                    |
-| Facility managers ≠ lab bring-up                   | Rosie owns bus + identity + laptop tools; leave RMF/FreeFleet for buildings |
+| Facility managers ≠ research / field bring-up      | Rosie owns bus + identity + laptop tools; leave RMF/FreeFleet for buildings |
 
 
 
@@ -266,7 +266,7 @@ native entrypoint (firmware `main.cpp` or nothing beyond `rosie run` / `rosie ag
 | Nav2, MoveIt, rich TF, mature ROS drivers on the robot             | **ROS 2 on the robot** + `rosie agent`                   |
 | Building traffic, elevators/doors, task dispatch at facility scale | **Open-RMF** / **FreeFleet** (Rosie is not this layer)   |
 | MCU or DIY Linux where ROS is pure overhead                        | **Rosie native** (`robot.yaml` + firmware / `rosie run`) |
-| Heterogeneous lab team + lightweight laptop tooling                | **Rosie** (native and/or bridged members)                |
+| Heterogeneous research / field team + lightweight laptop tooling   | **Rosie** (native and/or bridged members)                |
 
 
 Mixed fleets are the design point. Rosie always owns fleet membership and

@@ -105,7 +105,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--fleet",
         default=None,
-        help="fleet id (default: agent.yaml / ROSIE_FLEET)",
+        help="fleet id (required; default: agent.yaml / ROSIE_FLEET)",
     )
     p.add_argument(
         "--connect",

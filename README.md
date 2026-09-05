@@ -23,7 +23,7 @@ robotics distro on the host.
 2. **Fleet identity is first-class** — Robot and fleet are real identity, not
    topic prefixes or remaps. Presence, `fleet list` / `wait` / `estop`, and
    fleet-scoped `topic` / `viz` / `bag` are built in. This is fleet *ops for
-   lab bring-up*, not warehouse task dispatch.
+   research bring-up and field use*, not warehouse task dispatch.
 3. **Minutes to a working bus on a normal laptop** — macOS, Linux, or Windows:
    Zenoh + Python, no colcon, no Ubuntu robot PC for the host.
 4. **MCU is a first-class native citizen** — ESP32 firmware from `robot.yaml`
@@ -45,7 +45,7 @@ robotics distro on the host.
 | ----- | -------- | ------ |
 | On-robot middleware & ecosystem | ROS 2, Nav2, MoveIt | No — **bridge** when you need it (`rosie agent`) |
 | Facility / warehouse fleet orchestration | Open-RMF, FreeFleet | No — different layer (tasks, traffic, doors/elevators) |
-| Lab / teaching **heterogeneous fleet bring-up** | Rosie | **Yes** — bus, identity, laptop tools, optional native stack |
+| Research / field **heterogeneous fleet bring-up** | Rosie | **Yes** — bus, identity, laptop tools, optional native stack |
 
 They compose: keep ROS (or RMF) on robots that need it; use Rosie for the shared
 fleet bus and laptop tooling. Deeper comparison:
@@ -60,9 +60,10 @@ pip install -e "python[linux]"     # + Pi/Jetson GPIO / I2C drivers for `rosie r
 pip install -e "python[camera]"    # + OpenCV for host camera snap / live view
 # or: pip install -e "python[mcu,camera,linux]"
 
-rosie setup      # fetch zenohd once (while online)
-rosie router     # start the bus
-rosie doctor     # sanity-check the host
+rosie setup                  # fetch zenohd once (while online)
+rosie fleet init --fleet lab # create the fleet home (required before router)
+rosie router --fleet lab     # start the bus
+rosie doctor                 # sanity-check the host
 ```
 
 Details: [docs/getting-started.md](docs/getting-started.md). Notices: [NOTICE](NOTICE).
@@ -103,7 +104,7 @@ rosie run --config robot.yaml
 ```bash
 # on the robot (ROS already running)
 pip install rosie-framework
-rosie agent init --robot turtle1 --fleet lab --connect tcp/<router>:7447
+rosie agent init --robot turtle1 --fleet lab   # connect: auto, or pass --connect
 rosie agent run
 # laptop: same teleop / viz / fleet tools — no ROS on the laptop
 ```
@@ -137,7 +138,7 @@ python examples/minimal-pub-sub/listener.py
 
 Fleet networking (dedicated AP vs SoftAP): [docs/fleet/networking.md](docs/fleet/networking.md).
 Fleet management (init / add / router): [docs/fleet/management.md](docs/fleet/management.md).
-Security (solo/fleet × open/secure): [docs/fleet/security.md](docs/fleet/security.md).
+Security (fleet-open / fleet-secure): [docs/fleet/security.md](docs/fleet/security.md).
 
 ## Docs
 

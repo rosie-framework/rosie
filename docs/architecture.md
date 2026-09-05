@@ -40,7 +40,7 @@ Three layers to keep straight:
 | Layer | What it is | Example |
 |-------|------------|---------|
 | **Bus** | Shared Zenoh network: router + everyone connected to it | `rosie router` on the laptop LAN |
-| **Session** | One **process’s** connection to the bus, bound to a robot id (+ optional fleet) | Firmware on `car1`; `rosie teleop` on the laptop |
+| **Session** | One **process’s** connection to the bus, bound to a robot id and fleet | Firmware on `car1`; `rosie teleop` on the laptop |
 | **Topic** | One named I/O channel under that identity | `pose`, `cmd_vel`, `imu` |
 
 - The **bus** is infrastructure. It routes keys and payloads; it does not know
@@ -79,9 +79,9 @@ Python API: [Writing sessions](host/writing-sessions.md). MCU API / limits:
 
 | Entity | Role |
 |--------|------|
-| **Fleet** (optional) | Shared scope for multi-robot work; fleet-wide keys under `{fleet}/_fleet/…` |
-| **Robot** | Required id; topic boundary for that machine (`{fleet}/{robot}/…` or `{robot}/…`) |
-| **Session** | Process-local Zenoh handle bound to a robot (+ fleet) |
+| **Fleet** | Required shared scope; create with `rosie fleet init` before the router. Fleet-wide keys under `{fleet}/_fleet/…` |
+| **Robot** | Required id; topic boundary for that machine (`{fleet}/{robot}/…`) |
+| **Session** | Process-local Zenoh handle bound to a robot and fleet |
 | **Topic** | Named channel (`pose`, `cmd_vel`, …) — not one Session per sensor |
 
 ## Networking (where the bus lives)
@@ -90,28 +90,32 @@ Python API: [Writing sessions](host/writing-sessions.md). MCU API / limits:
 
 Multi-robot fleets use a **Wi‑Fi AP you control** — typically a dedicated AP,
 or optionally the laptop as AP. Prefer that over home / venue Wi‑Fi. Do **not**
-use a robot SoftAP for fleets (see solo fallback below).
+use a robot SoftAP for more than one robot (see one-robot SoftAP below).
 
 1. Bring up the AP (fixed SSID / password).
 2. Laptop and all robots join that SSID as **stations**.
-3. Host runs `rosie router` listening on `tcp/0.0.0.0:7447`.
-4. Every **MCU** opens a Zenoh **client** to `tcp/<host-lan-ip>:7447`
-   (`robot.yaml` `network.connect`). Host tools on the router machine default
-   to `tcp/127.0.0.1:7447` (override with `ROSIE_CONNECT` if remote).
+3. Host runs `rosie fleet init --fleet <id>` (once), then `rosie router --fleet <id>` listening on `tcp/0.0.0.0:7447`.
+4. Every robot opens a Zenoh **client** to the router host. Linux robots may
+   use `connect: auto` (scout + fleet check). MCU station codegen bakes the
+   LAN IP from `connect: auto`. Host tools on the router host default to
+   `tcp/127.0.0.1:7447` (override with `ROSIE_CONNECT` if remote).
 
-Discovery is brokered through the router. Application membership uses
-`presence` and `rosie fleet list`. Details: [Fleet networking](fleet/networking.md).
+Discovery is brokered through the router. Sessions are client mode; scouting
+only finds the router. Application membership uses `presence` and
+`rosie fleet list`. Details: [Fleet networking](fleet/networking.md).
 
-### Solo SoftAP fallback (one robot)
+### One-robot SoftAP (still a fleet)
 
-For a single MCU with no shared AP:
+For a single MCU with no shared AP. The robot still has a fleet id
+(`lab/car1/pose`, not `car1/pose`):
 
-1. Robot starts Wi‑Fi SoftAP (`rosie::softAP`).
-2. Host joins that AP (often `192.168.4.2`).
-3. Host runs `rosie router`.
-4. Robot opens a Zenoh client to `tcp/192.168.4.2:7447`.
+1. `rosie fleet init --fleet lab` (once, before the router).
+2. Robot starts Wi‑Fi SoftAP (`rosie::softAP`).
+3. Host joins that AP (often `192.168.4.2`).
+4. Host runs `rosie router --fleet lab`.
+5. Robot opens a Zenoh client to `tcp/192.168.4.2:7447`.
 
-**One robot ↔ one host only.** SoftAP is not the fleet path.
+**One robot ↔ one host only.** Two SoftAP cars need a dedicated AP.
 
 ## Messages
 

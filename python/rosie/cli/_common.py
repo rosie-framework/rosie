@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import argparse
 import os
-import socket
+
+from rosie.netinfo import local_ipv4s
+
+__all__ = ["add_fleet_common", "resolve_fleet_id", "local_ipv4s"]
 
 
 def add_fleet_common(
@@ -28,25 +31,3 @@ def resolve_fleet_id(args: argparse.Namespace) -> str:
     if not fleet:
         raise SystemExit("error: --fleet or ROSIE_FLEET is required")
     return fleet
-
-
-def local_ipv4s() -> list[str]:
-    ips: list[str] = []
-    try:
-        hostname = socket.gethostname()
-        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
-            ip = info[4][0]
-            if ip not in ips and not ip.startswith("127."):
-                ips.append(ip)
-    except OSError:
-        pass
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        if ip not in ips and not ip.startswith("127."):
-            ips.insert(0, ip)
-    except OSError:
-        pass
-    return ips

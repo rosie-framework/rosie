@@ -82,8 +82,9 @@ pip install rosie-framework
 # source ROS 2 if not already in the environment
 # source /opt/ros/$ROS_DISTRO/setup.bash
 
-rosie agent init --robot turtle1 --fleet lab --connect tcp/<router-ip>:7447
-# optional: --profile turtlebot4
+rosie agent init --robot turtle1 --fleet lab
+# optional: --connect tcp/<router-host-ip>:7447
+# optional: --profile turtlebot4 / rosmaster_m3_pro
 
 rosie agent doctor    # config, rclpy, router
 rosie agent run       # foreground; Ctrl+C to stop
@@ -94,36 +95,47 @@ systemctl --user enable --now rosie-agent.service
 ```
 
 `rosie agent init` writes `agent.yaml` (identity + ROS topic map). Profiles
-(`default_ros2`, `turtlebot3`, `turtlebot4`) fill topic defaults; override with
+(`default_ros2`, `turtlebot3`, `turtlebot4`, `rosmaster_x3`,
+`rosmaster_m3_pro`) fill topic defaults; override with
 `--cmd-vel` / `--odom` or edit the file:
 
 ```yaml
 robot: turtle1
 fleet: lab
-connect: tcp/192.168.8.2:7447
+connect: auto   # or tcp/<router-host-ip>:7447 — see fleet/networking.md
 ros2:
   profile: turtlebot4
   cmd_vel: /cmd_vel
   odom: /odom
+  # pose: /amcl_pose          # optional; omit to keep odom-based pose
+  navigate_to_pose: /navigate_to_pose
+  frame_id: map
 ```
 
-### Mapping (v1)
+### Mapping
 
 | Direction | ROS | Rosie |
 |-----------|-----|-------|
 | host → robot | publish `/cmd_vel` (`geometry_msgs/Twist`) | subscribe `cmd_vel` (`v`, `w`) |
-| robot → host | subscribe `/odom` | publish `pose` (`x`, `y`, `theta`) |
+| host → robot | `NavigateToPose` (`nav2_msgs`) | subscribe `goto` (`x`, `y`, `goal_id?`) |
+| robot → host | action result | publish `nav_result` |
+| robot → host | subscribe `/odom` or `ros2.pose` | publish `pose` (`x`, `y`, `theta`) |
 | robot → host | timer | publish `presence` (~1 Hz) |
+
+`goto` requires Nav2 (`nav2_msgs` + a running `navigate_to_pose` action server). Teleop, pose, and presence still work if Nav2 is absent; a `goto` then ends with `nav_result` `aborted`. `cmd` `stop` and incoming `cmd_vel` cancel an active Nav2 goal (`canceled`).
+
+Pose and goto share a frame (Rosie has no TF). Default pose is `/odom`. If Nav2 goals use `frame_id: map`, set `ros2.pose` to the localization topic (typically `/amcl_pose`) so `rosie drive` coordinates match viz. `rosie agent doctor` warns when `frame_id` is `map` but pose still comes from odom.
+
+Camera bridging is not in this mapping.
 
 From the laptop (Rosie only):
 
 ```bash
 rosie fleet list --fleet lab
 rosie teleop --robot turtle1 --fleet lab
+rosie drive --robot turtle1 --fleet lab   # needs Nav2
 rosie viz --fleet lab
 ```
-
-`goto` ↔ Nav2 and camera bridging are not in v1.
 
 Keep **units and frames** consistent with [Conventions](../conventions.md#units-and-frames):
 `pose` in meters, yaw in radians.

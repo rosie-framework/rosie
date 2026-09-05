@@ -10,7 +10,7 @@ from rosie.std_msgs import Twist
 
 
 def main() -> None:
-    with Session(robot="demo", name="talker") as session:
+    with Session(robot="demo", fleet="lab", name="talker") as session:
         print(f"Publishing on {session.resolve_name(topics.CMD_VEL)} (Ctrl-C to stop)")
         i = 0
         while True:

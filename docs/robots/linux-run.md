@@ -30,7 +30,7 @@ platform: linux
 robot: pi1
 fleet: lab
 network:
-  connect: tcp/192.168.8.2:7447
+  connect: auto   # or tcp/<router-host-ip>:7447 — see fleet/networking.md
 base:
   type: diff_drive
   wheel_diameter: 0.068
@@ -39,7 +39,7 @@ base:
 motors:
   driver: tb6612          # same chip as the ESP32 car; pins are Pi BCM
   pins: { pwmA: 12, ain1: 5, ain2: 6, pwmB: 13, bin1: 20, bin2: 21 }
-  pwm: { freq: 20000, min: 0.1, max: 1.0 }
+  pwm: { freq: 20000, min: 0.1, max: 1.0 }   # fraction of full duty; see mobile-base
 # encoders:               # optional; without them, pose is dead-reckoned
 #   driver: gpio_quadrature
 #   pins: { left: [17, 18], right: [22, 23] }
@@ -69,7 +69,7 @@ motors:
 #   enable_default: true
 control:
   dt_ms: 20
-  teleop: { timeout_ms: 400, kv: 180, kw: 40 }
+  teleop: { timeout_ms: 400, v_full: 1.0 }
   goto: { kp_linear: 0.8, kp_angular: 1.5, v_max: 0.35, w_max: 1.5 }
   velocity:               # optional; omit for open-loop only
     type: pid

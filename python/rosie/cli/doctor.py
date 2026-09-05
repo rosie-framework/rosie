@@ -91,13 +91,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             f"not on PATH or at {zenohd_cache_path()}; run `rosie setup`",
         )
 
-    from rosie.session import DEFAULT_CONNECT, resolve_connect
+    from rosie.connect import DEFAULT_CONNECT, is_auto_connect, resolve_connect
 
     connect = resolve_connect(args.connect)
-    host, port = _parse_tcp_locator(connect)
-    if host is None:
-        check("connect locator parse", False, f"could not parse {connect!r}")
+    if is_auto_connect(connect):
+        check("host connect", True, f"{connect} (scout; use --scout to probe)")
+        host, port = None, 0
     else:
+        host, port = _parse_tcp_locator(connect)
+    if host is None and not is_auto_connect(connect):
+        check("connect locator parse", False, f"could not parse {connect!r}")
+    elif host is not None:
         src = (
             "--connect"
             if args.connect
@@ -118,16 +122,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     lan = local_ipv4s()
     if lan:
         print(
-            "[--] MCU robots should use network.connect in robot.yaml, e.g. "
+            "[--] MCU station robots: network.connect: auto (codegen bakes LAN IP) "
+            "or "
             + " or ".join(f"tcp/{ip}:7447" for ip in lan[:3])
         )
     if any(ip.startswith("192.168.4.") for ip in lan):
-        check("SoftAP-like address (solo fallback)", True, ", ".join(lan))
+        check("SoftAP-like address (one-robot AP)", True, ", ".join(lan))
     else:
         print(
             f"[--] SoftAP-like address — local IPv4: {', '.join(lan) or 'none'} "
-            "(solo SoftAP often uses 192.168.4.2; fleets use a dedicated AP — "
-            "see docs/fleet/networking.md; secrets/allowlist — docs/fleet/management.md)"
+            "(one-robot SoftAP often uses 192.168.4.2; multi-robot fleets use a "
+            "dedicated AP — see docs/fleet/networking.md)"
         )
 
     ports = _list_serial_ports()
@@ -153,13 +158,33 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print()
     robot = os.environ.get("ROSIE_ROBOT", "robot")
     fleet = os.environ.get("ROSIE_FLEET")
-    identity = f"robot={robot}" + (f" fleet={fleet}" if fleet else " (no fleet)")
+    if fleet:
+        identity = f"robot={robot} fleet={fleet}"
+    else:
+        identity = f"robot={robot} (ROSIE_FLEET unset — required)"
     print(f"[--] default identity — {identity} (ROSIE_ROBOT / ROSIE_FLEET)")
     if not os.environ.get("ROSIE_CONNECT") and not args.connect:
         print(
             f"[--] ROSIE_CONNECT unset — host sessions use {DEFAULT_CONNECT} "
             "(local router). Override for a remote router host."
         )
+
+    if getattr(args, "scout", False):
+        print()
+        from rosie.discovery import scout_routers
+
+        hellos = scout_routers(timeout_s=1.5)
+        if not hellos:
+            print(
+                "[--] scout — no routers heard on 224.0.0.224:7446 "
+                "(multicast blocked, or no zenohd). "
+                "Fallback: tcp/<router-host-ip>:7447"
+            )
+        else:
+            check("scout", True, f"{len(hellos)} router(s)")
+            for hello in hellos:
+                locs = ", ".join(hello.locators) or "—"
+                print(f"      zid={hello.zid or '—'} locators={locs}")
 
     print()
     if ok:
@@ -175,5 +200,10 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--connect",
         default=None,
         help="override ROSIE_CONNECT for the reachability check",
+    )
+    p_doc.add_argument(
+        "--scout",
+        action="store_true",
+        help="probe multicast scouting for zenohd on this LAN",
     )
     p_doc.set_defaults(func=cmd_doctor)

@@ -38,7 +38,7 @@ rosie setup                 # fetch zenohd while online
 
 ```bash
 mkdir mybot && cd mybot
-rosie mcu init --robot mybot
+rosie mcu init --robot mybot --fleet lab
 ```
 
 That writes `robot.yaml`, a thin `DiffDriveStack` `src/main.cpp`, links
@@ -104,18 +104,20 @@ Drive REPL commands, flags, and the Python `MobileRobot` API:
 ### Fleet (dedicated AP)
 
 1. Install + `rosie setup` (+ `rosie mcu setup`) on normal internet.
-2. Power the dedicated AP; join laptop + robots as stations (`network.mode: station`).
-3. `rosie router` on the laptop (or Pi).
-4. Confirm each robot’s Zenoh locator; reset MCUs if needed.
-5. `rosie fleet list --fleet <id>` / `rosie drive` / teleop.
+2. `rosie fleet init --fleet <id>` (once, before the router).
+3. Power the dedicated AP; join laptop + robots as stations (`network.mode: station`).
+4. `rosie router --fleet <id>` on the laptop (or Pi).
+5. Confirm each robot’s Zenoh locator; reset MCUs if needed.
+6. `rosie fleet list --fleet <id>` / `rosie drive` / teleop.
 
-### Solo SoftAP fallback
+### One-robot SoftAP
 
 1. Install + `rosie setup` on normal Wi‑Fi.
-2. Join the robot SoftAP; confirm host IP (often `192.168.4.2`).
-3. `rosie router`
-4. Reset the MCU if it raced ahead of the router.
-5. `rosie drive` / teleop.
+2. `rosie fleet init --fleet <id>` (if you have not already).
+3. Join the robot SoftAP; confirm host IP (often `192.168.4.2`).
+4. `rosie router --fleet <id>`
+5. Reset the MCU if it raced ahead of the router.
+6. `rosie drive` / teleop.
 
 ## 7. Escape hatch (MCU)
 
@@ -127,7 +129,7 @@ gen-config + stack branch — [Contributing](../../CONTRIBUTING.md) / [Drivers](
 
 ## 8. What goes in the robot README
 
-- Network mode, robot id, optional fleet, Zenoh locator
+- Network mode, robot id, fleet, Zenoh locator
 - That config lives in `robot.yaml`
 - Board / `rosie mcu flash` notes (MCU) or `rosie run` notes (Linux)
 - Any custom `cmd` ops beyond MobileBase defaults (`stop`, `zero`, `set_gains`,
@@ -156,7 +158,7 @@ platform: linux
 robot: pi1
 fleet: lab
 network:
-  connect: tcp/192.168.8.2:7447
+  connect: auto   # or tcp/<router-host-ip>:7447 — see fleet/networking.md
 base:
   type: diff_drive
   wheel_diameter: 0.068
@@ -165,14 +167,14 @@ base:
 motors:
   driver: tb6612
   pins: { pwmA: 12, ain1: 5, ain2: 6, pwmB: 13, bin1: 20, bin2: 21 }
-  pwm: { freq: 20000, min: 0.1, max: 1.0 }
+  pwm: { freq: 20000, min: 0.1, max: 1.0 }   # fraction of full duty; see mobile-base
 # encoders:
 #   driver: gpio_quadrature
 #   pins: { left: [17, 18], right: [22, 23] }
 #   pub_hz: 10
 control:
   dt_ms: 20
-  teleop: { timeout_ms: 400 }
+  teleop: { timeout_ms: 400, v_full: 1.0 }
   pose_hz: 20
   presence_hz: 1
 ```

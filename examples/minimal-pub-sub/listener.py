@@ -7,7 +7,7 @@ from rosie import Session, topics
 
 
 def main() -> None:
-    with Session(robot="demo", name="listener") as session:
+    with Session(robot="demo", fleet="lab", name="listener") as session:
         def on_msg(msg: dict) -> None:
             print(f"  got {msg}")
 

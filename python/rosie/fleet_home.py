@@ -1,4 +1,4 @@
-"""Host-side fleet and solo secret/manifest paths under ``~/.rosie``."""
+"""Host-side fleet secret/manifest paths under ``~/.rosie``."""
 
 from __future__ import annotations
 
@@ -7,9 +7,6 @@ import secrets
 from pathlib import Path
 
 from .bootstrap import rosie_home
-
-SOLO_USER = "rosie"
-
 
 def fleets_root() -> Path:
     return rosie_home() / "fleets"
@@ -28,14 +25,6 @@ def default_manifest_path(fleet_id: str) -> Path:
 
 def default_secret_path(fleet_id: str) -> Path:
     return fleet_dir(fleet_id) / "secret"
-
-
-def solo_dir() -> Path:
-    return rosie_home() / "solo"
-
-
-def solo_secret_path() -> Path:
-    return solo_dir() / "secret"
 
 
 def ensure_dir(path: Path, *, mode: int = 0o700) -> Path:

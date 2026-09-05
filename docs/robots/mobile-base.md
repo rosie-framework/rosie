@@ -37,8 +37,10 @@ flowchart TB
 - **Shared behavior** — topics, IDLE / MANUAL / AUTO, teleop deadman, goto,
   and `cmd`. Teleop and goto both produce a body Twist `(v, w)` and share one
   actuation path through the layers below.
-  - **Kinematics** — steering geometry: Twist ↔ feedforward channels + wheel
-    velocities + odometry (DiffDrive today; mecanum / ackermann later).
+  - **Kinematics** — steering geometry: Twist → wheel velocities (`v ± w L/2`)
+    → open-loop channels (`v_wheel / v_full`) + odometry (DiffDrive today;
+    mecanum / ackermann later). `control.teleop.v_full` is wheel speed (m/s)
+    at `|channel| = 1`.
   - **`VelocityController`** — optional closed-loop correction between
     kinematics outputs and motors. Default PID with gains `0,0,0` ≈ open-loop
     passthrough; if no controller is attached, kinematics channels go straight
@@ -114,11 +116,22 @@ Platform mechanisms (MCU read task + `spin()` vs Python main loop):
 [Firmware](firmware.md#control-loop) · [Linux run](linux-run.md#control-loop).
 
 ```yaml
+motors:
+  pwm:
+    freq: 20000
+    res: 8                 # MCU timer bits only (ticks = 2^res - 1)
+    min: 0.1               # fraction of full PWM (stiction floor)
+    max: 1.0               # fraction of full PWM (1.0 = full duty)
 control:
+  teleop:
+    v_full: 1.0            # wheel m/s at |channel|=1 (open-loop FF)
+    timeout_ms: 400
+    v_fwd: 0.25            # WASD forward command (m/s), not a motor gain
+    v_turn: 1.2
   goto:                    # pose → Twist
     kp_linear: 0.8
     kp_angular: 1.5
-    v_max: 0.35
+    v_max: 0.35            # planner cap, not v_full
     w_max: 1.5
   velocity:                # omit or kp=ki=kd=0 for open-loop
     type: pid
@@ -128,6 +141,25 @@ control:
     i_clamp: 0.5
   control_hz: 5            # control topic rate when velocity PID attached
 ```
+
+**`motors.pwm.min` / `max`** are fractions of full PWM on both MCU and Linux
+(`[0, 1]`). The affine map is `duty = min + |u| * (max - min)`, then MCU
+`ledcWrite` uses `duty * (2^res - 1)`. `res` only chooses timer resolution;
+changing 8-bit → 10-bit does not require rewriting min/max. Cap how fast the
+robot *asks* to go with `v_fwd` / `goto.v_max`, not by setting `max` below
+`1.0` unless you want an explicit current/thermal limit.
+
+**`control.teleop.v_full`** is the wheel speed (m/s) at which open-loop duty is
+`|channel| = 1`:
+
+```
+channel = saturate(v_wheel / v_full)
+```
+
+Measure it: command full stick (or a known `|channel|`), read encoder wheel
+velocity, set `v_full = v_wheel / |channel|`. Or estimate from motor RPM ×
+gear × circumference and verify on the robot. It is not `v_fwd` (WASD
+command) and not `goto.v_max` (planner cap).
 
 Default velocity gains are **zero** (same feel as open-loop). Non-zero
 starter gains are robot-specific — tune with `rosie tune`. Requires a
@@ -194,8 +226,8 @@ How the **robot** accepts motion. Host methods and the drive REPL:
 Arrival order and `goal_id` rules: [Control loop timing](#control-loop-timing).
 Latest `cmd_vel` wins; `stop` / `zero` beat an older `cmd_vel`. While AUTO, a
 duplicate `goal_id` is ignored, a lower id is stale, a higher id preempts.
-`nav_result` is `succeeded` / `canceled` (`aborted` is reserved — hosts must
-tolerate it, robots do not currently emit it).
+`nav_result` is `succeeded` / `canceled` on native MobileBase. Bridged Nav2
+agents may also emit `aborted` (hosts must tolerate it).
 
 ## Host
 

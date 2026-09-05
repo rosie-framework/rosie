@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 
 
 def cmd_teleop(args: argparse.Namespace) -> int:
     from rosie.tools.teleop_twist import run_teleop
+
+    if not args.fleet:
+        print("error: --fleet or ROSIE_FLEET is required", file=sys.stderr)
+        return 2
 
     run_teleop(
         robot=args.robot,
@@ -30,7 +35,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     p_tele.add_argument(
         "--fleet",
         default=os.environ.get("ROSIE_FLEET"),
-        help="optional fleet id (default: ROSIE_FLEET)",
+        help="fleet id (required; default: ROSIE_FLEET)",
     )
     p_tele.add_argument(
         "--secure",

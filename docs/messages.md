@@ -165,7 +165,7 @@ Published once when AUTO navigation ends.
 |-------|------|---------|
 | `stamp` | `f64` | Seconds (auto-filled when missing) |
 | `goal_id` | `i32` | attempt id from `Goto` (or robot-assigned) |
-| `status` | `str` | `"succeeded"` / `"canceled"` (robots emit these); `"aborted"` is reserved — hosts must tolerate it, robots do not currently emit it |
+| `status` | `str` | `"succeeded"` / `"canceled"` (native MobileBase / `rosie run`); `"aborted"` when a bridged Nav2 goal is rejected, the action server is missing, or Nav2 aborts. Hosts must tolerate all three. |
 | `x` | `f32?` | pose at completion (meters) |
 | `y` | `f32?` | pose at completion (meters) |
 

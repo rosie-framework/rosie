@@ -23,6 +23,9 @@ ids at compile time (`rosie mcu gen-config`). Linux `rosie run` selects at runti
 | `python` | linux | supported | BYO `MotorDriver` via `motors.class` |
 | `drv8833` | mcu | planned | BYO via `MotorDriver` / raw `MobileBase` until supported |
 
+`motors.pwm.min` / `max` are fractions of full duty (`[0, 1]`) on MCU and
+Linux. `res` is MCU timer bits only. See [Mobile base](mobile-base.md).
+
 ## Encoders
 
 | id | platforms | status | notes |
@@ -107,7 +110,7 @@ still need unique addresses and `xshut` when more than one VL53 is present.
 
 ## Network (`network.mode`)
 
-MCU only (Linux uses the OS network stack; set `network.connect` for Zenoh):
+MCU only (Linux uses the OS network stack; set `network.connect` to `auto` or an explicit locator — [How robots find the router](../fleet/networking.md#how-robots-find-the-router)):
 
 | id | platforms | status | notes |
 |----|-----------|--------|-------|

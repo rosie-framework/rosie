@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -31,7 +32,7 @@ def cmd_secret_apply(args: argparse.Namespace) -> int:
         return 2
     path = path.resolve()
 
-    fleet = args.fleet
+    fleet = args.fleet or os.environ.get("ROSIE_FLEET")
     manifest = resolve_manifest(
         manifest=args.manifest,
         fleet=fleet,
@@ -40,13 +41,15 @@ def cmd_secret_apply(args: argparse.Namespace) -> int:
     )
     if manifest and not fleet:
         fleet = manifest.fleet
+    if not fleet:
+        print("error: --fleet or ROSIE_FLEET is required", file=sys.stderr)
+        return 2
 
-    # secret apply is explicit: read (or create solo) host secret files.
     password = resolve_secret_plaintext(
         secret=args.secret,
         secret_file=args.secret_file,
         fleet=fleet,
-        secure=bool(fleet) or bool(args.solo),
+        secure=True,
         manifest_secret_file=manifest.secret_file if manifest else None,
     )
     if not password:
@@ -89,13 +92,12 @@ def register(sub: argparse._SubParsersAction) -> None:
         default=None,
         help="robot.yaml or agent.yaml (default: ./robot.yaml or ./agent.yaml)",
     )
-    p_apply.add_argument("--fleet", default=None, help="fleet id for secret lookup")
-    p_apply.add_argument("--manifest", default=None, help="fleet manifest path")
     p_apply.add_argument(
-        "--solo",
-        action="store_true",
-        help="use (and create if needed) ~/.rosie/solo/secret",
+        "--fleet",
+        default=os.environ.get("ROSIE_FLEET"),
+        help="fleet id for secret lookup (default: ROSIE_FLEET)",
     )
+    p_apply.add_argument("--manifest", default=None, help="fleet manifest path")
     p_apply.add_argument("--secret", default=None, help="password override")
     p_apply.add_argument("--secret-file", default=None, help="password file override")
     p_apply.set_defaults(func=cmd_secret_apply)

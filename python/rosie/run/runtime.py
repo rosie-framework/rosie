@@ -84,22 +84,13 @@ class MobileBaseRuntime:
         control = self._raw.get("control") or {}
         teleop = control.get("teleop") or {}
         base = self._raw.get("base") or {}
-        pwm = (self._raw.get("motors") or {}).get("pwm") or {}
-        max_pwm = float(pwm.get("max", 100))
-        if max_pwm <= 1.0:
-            max_pwm = 100.0
-
         self.kinematics = DiffDriveKinematics(
             DiffDriveGeometry(
                 wheel_diameter=float(base.get("wheel_diameter", 0.068)),
                 wheel_base=float(base.get("wheel_base", 0.13)),
                 ticks_per_rev=float(base.get("ticks_per_rev", 1440)),
             ),
-            DiffDriveTeleop(
-                kv=float(teleop.get("kv", 180)),
-                kw=float(teleop.get("kw", 40)),
-                max_pwm=max_pwm,
-            ),
+            DiffDriveTeleop(v_full=float(teleop.get("v_full", 1.0))),
         )
         goto = control.get("goto") or {}
         self.goto_gains = GotoGains(

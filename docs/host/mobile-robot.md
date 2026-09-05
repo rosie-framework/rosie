@@ -39,7 +39,7 @@ bot.close()
 |-------|------|
 | `robot` | Robot id for relative topics |
 | `fleet` | Optional fleet id |
-| `connect` | Zenoh locator (e.g. `tcp/127.0.0.1:7447`) |
+| `connect` | Zenoh locator (e.g. `tcp/127.0.0.1:7447`). `auto` in `robot.yaml` is ignored on the host (falls back to localhost). |
 | `name` | Session name (default `"mobile"`) |
 | `config_path` | Optional `robot.yaml` — fills identity / connect / teleop defaults |
 | `secure` | Prefer secure Session when no password is loaded from YAML |
@@ -48,7 +48,7 @@ bot.close()
 
 1. Explicit `robot` / `fleet` / `connect` kwargs (when provided)
 2. Else fields from `config_path` (`robot.yaml`) when set
-3. Else `robot` from `ROSIE_ROBOT` (default `"robot"`)
+3. Else `robot` from `ROSIE_ROBOT` (default `"robot"`) and `fleet` from `ROSIE_FLEET`
 
 Explicit kwargs win over YAML for any field you pass. You do **not** need a
 copy of another robot’s `robot.yaml` on the laptop — only its id (and fleet /
@@ -135,7 +135,7 @@ At the `target>` prompt:
 | `stop` | Emergency stop |
 | `quit` | Exit |
 
-`rosie teleop --robot <id>` is the dedicated WASD → `cmd_vel` tool when you
+`rosie teleop --robot <id> --fleet <id>` is the dedicated WASD → `cmd_vel` tool when you
 only want keyboard driving (no waypoint REPL). Drive REPL includes optional
 camera `snap` / `cam` when the robot publishes JPEG. OpenCV viewer:
 `pip install "rosie-framework[camera]"` (robots can publish
@@ -144,10 +144,12 @@ camera `snap` / `cam` when the robot publishes JPEG. OpenCV viewer:
 
 ## Bridged ROS robots
 
-Typical [`rosie agent`](../robots/bridges.md) bridges `cmd_vel`, `pose`, and
-`presence` only. Prefer `teleop()`, `drive` / `turn` (pose odometry + `cmd_vel`),
-or a raw `Session` for those robots until `goto` / `nav_result` are bridged.
-Native MobileBase / DiffDriveStack robots support the full nav helpers above.
+[`rosie agent`](../robots/bridges.md) maps `cmd_vel`, `pose`, `presence`, and
+(when Nav2 is running) `goto` / `nav_result`. `goto()`, `drive_to()`, and
+`rosie drive` work the same as on native MobileBase once the agent can reach
+`NavigateToPose`. Set `ros2.pose` (e.g. `/amcl_pose`) so goals and viz share the
+Nav2 map frame. Without Nav2, prefer `teleop()`, `drive` / `turn` (pose
+odometry + `cmd_vel`).
 
 ## Related
 

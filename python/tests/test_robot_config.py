@@ -10,6 +10,7 @@ from rosie.robot_config import RobotConfig, generate_robot_config_h, validate_ro
 def _base_mcu(**overrides):
     raw = {
         "robot": "testbot",
+        "fleet": "lab",
         "network": {"mode": "softap", "ssid": "x", "password": "y"},
         "base": {
             "type": "diff_drive",
@@ -33,6 +34,13 @@ def _base_mcu(**overrides):
     return raw
 
 
+def test_validate_requires_fleet():
+    raw = _base_mcu()
+    del raw["fleet"]
+    with pytest.raises(ValueError, match="fleet"):
+        validate_robot_config(raw)
+
+
 def test_gen_config_tb6612_macros():
     raw = _base_mcu()
     validate_robot_config(raw)
@@ -43,6 +51,14 @@ def test_gen_config_tb6612_macros():
     assert "#define ROSIE_HAS_ENCODERS 0" in hdr
     assert "#define ROSIE_HAS_IMU 0" in hdr
     assert "#define ROSIE_HAS_CAMERA 0" in hdr
+    assert "ROSIE_TELEOP_V_FULL = 1.0f" in hdr
+    assert "ROSIE_TELEOP_K_FF" not in hdr
+    assert "ROSIE_TELEOP_KV" not in hdr
+    assert "ROSIE_TELEOP_KW" not in hdr
+    assert "ROSIE_MIN_PWM = 0.1f" in hdr
+    assert "ROSIE_MAX_PWM = 1.0f" in hdr
+    assert 'ROSIE_FLEET_ID = "lab"' in hdr
+    assert "ROSIE_FLEET_ID = nullptr" not in hdr
 
 
 def test_gen_config_l298n_macros():
@@ -163,4 +179,23 @@ def test_camera_custom_requires_pins():
 def test_l298n_requires_pin_keys():
     raw = _base_mcu(motors={"driver": "l298n", "pins": {"ena": 1}})
     with pytest.raises(ValueError, match="motors.pins"):
+        validate_robot_config(raw)
+
+
+def test_pwm_min_max_must_be_0_1():
+    raw = _base_mcu()
+    raw["motors"]["pwm"] = {"freq": 20000, "res": 8, "min": 55, "max": 100}
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        validate_robot_config(raw)
+
+
+def test_rejects_legacy_k_ff():
+    raw = _base_mcu(control={"teleop": {"k_ff": 1.8}})
+    with pytest.raises(ValueError, match="v_full"):
+        validate_robot_config(raw)
+
+
+def test_v_full_must_be_positive():
+    raw = _base_mcu(control={"teleop": {"v_full": 0}})
+    with pytest.raises(ValueError, match="v_full"):
         validate_robot_config(raw)

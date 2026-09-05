@@ -42,9 +42,6 @@ class Pca9685MotorDriver:
         pwm = motors.get("pwm") or {}
         pmin = float(pwm.get("min", 0.1))
         pmax = float(pwm.get("max", 1.0))
-        if pmax > 1.0:
-            pmin /= 100.0
-            pmax /= 100.0
         return cls(
             bus=int(i2c.get("bus", 1)),
             addr=int(i2c.get("addr", 0x40)),

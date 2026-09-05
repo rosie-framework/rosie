@@ -52,12 +52,8 @@ class Tb6612MotorDriver:
         missing = [k for k in required if k not in pins]
         if missing:
             raise ValueError(f"motors.pins missing keys: {missing}")
-        # pwm.min/max may be 0-100 (MCU style) or 0-1
         pmin = float(pwm.get("min", 0.1))
         pmax = float(pwm.get("max", 1.0))
-        if pmax > 1.0:
-            pmin = pmin / 100.0
-            pmax = pmax / 100.0
         return cls(
             pwm_a=int(pins["pwmA"]),
             ain1=int(pins["ain1"]),

@@ -73,8 +73,10 @@ Goto:
 # NavResult — terminal outcome of a goto attempt (typically on nav_result)
 # ---------------------------------------------------------------------------
 # Published once when AUTO navigation ends. status convention:
-#   "succeeded" | "canceled"  — emitted by MobileBase / rosie run today
-#   "aborted"                 — reserved; hosts must tolerate it, robots do not emit it
+#   "succeeded" | "canceled"  — emitted by MobileBase / rosie run
+#   "aborted"                 — bridged Nav2 agents may emit this (rejected /
+#                               missing action server / Nav2 abort); hosts must
+#                               tolerate it. Native robots do not emit it.
 #   goal_id: attempt id from Goto (or robot-assigned)
 #   x, y:    optional pose at completion (meters)
 NavResult:
@@ -87,8 +89,8 @@ NavResult:
 # RobotPresence — robot heartbeat / membership (typically on presence)
 # ---------------------------------------------------------------------------
 # Published by each robot so hosts can discover live members of a fleet
-# (or a solo robot). status is a short string convention: "ready", "fault",
-# "offline". fleet_id is omitted/empty when the robot has no fleet.
+# (one or more robots in a fleet). status is a short string convention: "ready", "fault",
+# "offline". fleet_id is the robot's fleet.
 #   robot_id: this robot's id
 #   fleet_id: optional fleet id
 #   status:   lifecycle / health string

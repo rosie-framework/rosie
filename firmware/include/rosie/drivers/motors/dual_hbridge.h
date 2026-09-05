@@ -28,8 +28,7 @@ class DualHBridge : public MotorDriver {
   float maxPwm() const { return pwm_.max_pwm; }
 
  private:
-  void setMotor_(int pwm_pin, int in1, int in2, float pwm_cmd);
-  float shapePwm_(float cmd) const;
+  void setMotor_(int pwm_pin, int in1, int in2, float channel);
 
   DualHBridgePins pins_;
   PwmShaping pwm_;

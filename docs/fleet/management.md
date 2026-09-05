@@ -1,7 +1,8 @@
 # Fleet management
 
-Operator guide for **solo vs fleet** bring-up and membership. Security layers,
-threat model, and the four open/secure modes:
+Operator guide for fleet bring-up and membership. A **fleet is required** for
+every robot on the bus (including a single desk MCU). Security layers,
+threat model, and the two open/secure modes:
 [Security](security.md). Wi‑Fi topology:
 [Fleet networking](networking.md).
 
@@ -10,52 +11,32 @@ threat model, and the four open/secure modes:
 ```mermaid
 flowchart TD
   start[Starting with Rosie]
-  start --> n{One robot or a fleet?}
-  n -->|One robot| w{Which Wi-Fi?}
-  w -->|Robot SoftAP| softap[Laptop joins robot SSID]
-  softap --> openBus[rosie router — solo open]
-  openBus --> soloTools[teleop / drive / viz --robot]
-  w -->|Home or campus LAN| shared[Robot network.mode: station]
-  shared --> secure[rosie router --secure — solo secure]
-  secure --> applySolo[rosie secret apply --solo]
-  n -->|Fleet| m{MCU/ESP32 or secure host?}
-  m -->|ESP32 / open lab| fo[fleet init + router --fleet — fleet open]
-  m -->|Linux / shared Wi-Fi| fs[fleet init --secure + router --fleet --secure]
+  start --> init["rosie fleet init --fleet X"]
+  init --> net{Which Wi-Fi?}
+  net -->|Robot SoftAP| softap[Laptop joins robot SSID]
+  softap --> openBus["rosie router --fleet X"]
+  openBus --> tools[teleop / drive / viz --fleet]
+  net -->|Dedicated or shared AP| shared[Robots network.mode: station]
+  shared --> mode{MCU or secure host?}
+  mode -->|ESP32 / open lab| fo["router --fleet X — fleet open"]
+  mode -->|Linux / shared Wi-Fi| fs["fleet init --secure + router --fleet --secure"]
+  fo --> tools
+  fs --> tools
 ```
 
 | Path | Router | Secret? | Allowlist? |
 |------|--------|---------|------------|
-| **Solo SoftAP** | `rosie router` | No | N/A |
-| **Solo shared Wi‑Fi** | `rosie router --secure` | Yes (`~/.rosie/solo/secret`) | N/A |
-| **Fleet open** (ESP32) | `rosie router --fleet X` | No | No |
+| **Fleet open** (ESP32 / SoftAP) | `rosie router --fleet X` | No | No |
 | **Fleet secure** | `rosie router --fleet X --secure` | Yes | Yes on `fleet list` / `topics` with `--secure` |
 
 `--fleet` alone does **not** enable auth. Leftover secret files do not silently
 secure an open router. Details: [Security](security.md).
 
-## Solo SoftAP
+Create the fleet **before** starting the router. `fleet init` writes
+`~/.rosie/fleets/<id>/manifest.yaml`. `router --fleet` does **not** create
+that home; it exits if the manifest is missing.
 
-Default desk demo. Robot hosts Wi‑Fi; laptop joins; `rosie router` stays **open**.
-
-```bash
-rosie router
-rosie teleop --robot car1
-```
-
-## Solo on shared Wi‑Fi
-
-SoftAP isolation is gone. Opt in to bus auth:
-
-```bash
-rosie router --secure                 # ~/.rosie/solo/secret
-cd mybot && rosie secret apply --solo # writes network.fleet_secret into robot.yaml
-rosie mcu build && rosie mcu flash
-rosie teleop --robot car1
-```
-
-## Fleet open (multi-robot ESP32)
-
-Create the fleet home, enroll ids, start an **open** bus:
+## Fleet open (MCU / SoftAP / travel AP)
 
 ```bash
 rosie fleet init --fleet demofleet
@@ -69,6 +50,8 @@ rosie fleet list --fleet demofleet
 - Creating `robot.yaml` does **not** enroll a robot — run `fleet add`.
 - `fleet init` does **not** start the router; `router --fleet` does **not** create the fleet.
 - Open mode shows all presence under the fleet prefix (no allowlist filter).
+- SoftAP is a **Wi-Fi** choice for one MCU (laptop joins the robot SSID). The
+  robot still publishes `{fleet}/{robot}/…`.
 
 ## Fleet secure (host / Linux)
 
@@ -117,14 +100,14 @@ then pass `--secure` on router and fleet tools.
 The secret is **not** sent over Zenoh. Rotate with
 `rosie fleet secret --fleet lab --rotate`, then re-share and rebuild every robot.
 
-`--manifest path` overrides when the roster lives in a course repo (ids only —
-never commit the secret).
+`--manifest path` overrides when the roster lives in an experiment repo (ids
+only — never commit the secret).
 
 ## Related docs
 
 - [Fleet (Python)](../host/fleet.md) — `Fleet` kwargs / methods (wait, topics, estop)
-- [Security](security.md) — four modes, layered model, ESP32 limits
-- [Fleet networking](networking.md) — dedicated AP vs SoftAP topology
+- [Security](security.md) — two modes, layered model, ESP32 limits
+- [Fleet networking](networking.md) — SoftAP vs dedicated AP topology
 - [Conventions](../conventions.md) — `(fleet, robot)` identity and presence
 - [BYOR](../robots/byor.md) — standing up a native robot
-- [Getting started](../getting-started.md) — install and first router
+- [Getting started](../getting-started.md) — install, fleet init, first router

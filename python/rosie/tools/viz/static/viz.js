@@ -201,7 +201,7 @@
       });
       robotList.appendChild(li);
     }
-    const fleet = state.fleet ? `fleet ${state.fleet}` : "solo";
+    const fleet = state.fleet ? `fleet ${state.fleet}` : "fleet ?";
     meta.textContent = `${state.mode || "live"} · ${fleet} · ${ids.length} robot(s)`;
     if (selected && state.robots[selected]) {
       const r = state.robots[selected];

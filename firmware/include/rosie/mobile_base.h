@@ -28,7 +28,7 @@ struct MobileBaseConfig {
   const char* fleet = nullptr;
   unsigned long dt_ms = 20;
   unsigned long teleop_timeout_ms = 400;
-  float max_pwm = 100.0f;  // teleop / kinematics channel scale
+  float max_pwm = 1.0f;  // unused by tick; MotorDriver owns PWM shaping
   GotoGains goto_gains;
   float pose_hz = 20.0f;
   float presence_hz = 1.0f;

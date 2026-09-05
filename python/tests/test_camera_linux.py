@@ -23,6 +23,7 @@ from rosie.session import Qos
 def _base_mcu(**overrides):
     raw = {
         "robot": "testbot",
+        "fleet": "lab",
         "network": {"mode": "softap", "ssid": "x", "password": "y"},
         "base": {
             "type": "diff_drive",
@@ -49,6 +50,7 @@ def _base_mcu(**overrides):
 def _base_linux(**overrides):
     raw = {
         "robot": "pibot",
+        "fleet": "lab",
         "platform": "linux",
         "network": {"connect": "tcp/127.0.0.1:7447"},
         "base": {

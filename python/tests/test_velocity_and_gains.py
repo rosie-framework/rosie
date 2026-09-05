@@ -14,6 +14,7 @@ def _runtime(*, velocity: dict | None = None, imu: bool = False) -> MobileBaseRu
         control["velocity"] = velocity
     raw: dict = {
         "robot": "testbot",
+        "fleet": "lab",
         "platform": "linux",
         "network": {"connect": "tcp/127.0.0.1:7447"},
         "base": {
@@ -243,6 +244,7 @@ def test_zero_invokes_encoder_and_imu_hooks():
     imu = _FakeImu()
     raw = {
         "robot": "testbot",
+        "fleet": "lab",
         "platform": "linux",
         "network": {"connect": "tcp/127.0.0.1:7447"},
         "base": {
@@ -280,6 +282,7 @@ def test_control_hz_codegen():
 
     raw = {
         "robot": "car1",
+        "fleet": "lab",
         "network": {
             "mode": "softap",
             "ssid": "x",

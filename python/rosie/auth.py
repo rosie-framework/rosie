@@ -1,4 +1,4 @@
-"""Shared fleet / solo Zenoh usrpwd secrets and config helpers."""
+"""Shared fleet Zenoh usrpwd secrets and config helpers."""
 
 from __future__ import annotations
 
@@ -10,15 +10,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .fleet_home import (
-    SOLO_USER,
     default_secret_path,
-    generate_secret,
     read_secret_file,
-    solo_secret_path,
-    write_secret_file,
 )
 
-BusMode = Literal["solo-open", "solo-secure", "fleet-open", "fleet-secure"]
+BusMode = Literal["fleet-open", "fleet-secure"]
 
 
 def sha256_hex(password: str) -> str:
@@ -26,10 +22,10 @@ def sha256_hex(password: str) -> str:
 
 
 def bus_mode(*, fleet: str | None, secure: bool) -> BusMode:
-    """Return the four-mode label for banners and docs."""
-    if fleet:
-        return "fleet-secure" if secure else "fleet-open"
-    return "solo-secure" if secure else "solo-open"
+    """Return the bus-mode label for banners and docs."""
+    if not fleet:
+        raise ValueError("fleet is required")
+    return "fleet-secure" if secure else "fleet-open"
 
 
 @dataclass(frozen=True)
@@ -57,9 +53,9 @@ def resolve_secret_plaintext(
     Explicit overrides always win: ``secret`` → ``secret_file`` →
     ``ROSIE_FLEET_SECRET``.
 
-    Host secret files (manifest ``secret_file``, ``~/.rosie/fleets/<id>/secret``,
-    ``~/.rosie/solo/secret``) are read **only when** ``secure=True``. Presence of
-    a leftover secret file must not silently enable auth on an open bus.
+    Host secret files (manifest ``secret_file``, ``~/.rosie/fleets/<id>/secret``)
+    are read **only when** ``secure=True``. Presence of a leftover secret file
+    must not silently enable auth on an open bus.
     """
     if secret is not None and str(secret).strip():
         return str(secret).strip()
@@ -82,15 +78,7 @@ def resolve_secret_plaintext(
         got = read_secret_file(default_secret_path(fleet))
         if got:
             return got
-        return None
-
-    # Solo secure: read or create ~/.rosie/solo/secret
-    got = read_secret_file(solo_secret_path())
-    if got:
-        return got
-    s = generate_secret()
-    write_secret_file(solo_secret_path(), s)
-    return s
+    return None
 
 
 def credentials_for(
@@ -100,9 +88,9 @@ def credentials_for(
 ) -> BusCredentials | None:
     if not password:
         return None
-    user = fleet.strip() if fleet else SOLO_USER
+    user = (fleet or "").strip()
     if not user:
-        user = SOLO_USER
+        raise ValueError("fleet is required for bus credentials")
     return BusCredentials(user=user, password=password)
 
 
@@ -117,7 +105,7 @@ def apply_usrpwd_to_zenoh_config(conf: Any, creds: BusCredentials) -> None:
 
 def write_router_auth_files(
     *,
-    fleet: str | None,
+    fleet: str,
     password: str,
     out_dir: Path | None = None,
 ) -> tuple[Path, Path]:
@@ -126,7 +114,7 @@ def write_router_auth_files(
 
     creds = credentials_for(fleet=fleet, password=password)
     assert creds is not None
-    label = fleet or "solo"
+    label = fleet
     root = Path(out_dir) if out_dir else (rosie_home() / "router" / label)
     root.mkdir(parents=True, exist_ok=True)
     dictionary = root / "credentials.txt"

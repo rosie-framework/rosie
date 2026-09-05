@@ -1,0 +1,9 @@
+# Yahboom ROSMASTER M3 Pro (official m3_bringup ROS 2 Humble).
+# Chassis: /cmd_vel (STM32 / micro-ROS). Raw wheel odom is /odom_raw.
+# EKF remaps /odometry/filtered → /odom (m3_bringup merge_odom.launch.py).
+# Nav2: ros2 launch m3_bringup nav2.launch.py (NavigateToPose).
+# When AMCL is running, set pose: /amcl_pose so goto matches the map frame.
+cmd_vel: /cmd_vel
+odom: /odom
+navigate_to_pose: /navigate_to_pose
+frame_id: map

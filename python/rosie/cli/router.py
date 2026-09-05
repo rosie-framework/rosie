@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
+import threading
+import time
 from importlib import resources
 from pathlib import Path
 
-from rosie.cli._common import local_ipv4s
+from rosie.cli._common import local_ipv4s, resolve_fleet_id
+from rosie.netinfo import lan_locator
 
 
 def default_config_path() -> Path:
@@ -76,24 +80,34 @@ def cmd_router(args: argparse.Namespace) -> int:
 
     zenohd = find_zenohd(fetch=not args.no_fetch, force=False, quiet=False)
 
-    fleet = args.fleet
-    manifest = None
-    if args.manifest or fleet:
-        try:
-            manifest = resolve_manifest(
-                manifest=args.manifest,
-                fleet=fleet,
-                allow_empty_robots=True,
-                required=False,
-            )
-        except Exception:
-            manifest = None
-    if manifest is not None and not fleet:
-        fleet = manifest.fleet
+    try:
+        fleet = resolve_fleet_id(args)
+    except SystemExit:
+        print(
+            "error: --fleet or ROSIE_FLEET is required. Create a fleet first:\n"
+            "  rosie fleet init --fleet <id>",
+            file=sys.stderr,
+        )
+        return 2
 
-    manifest_secret = None
-    if manifest and manifest.secret_file:
-        manifest_secret = manifest.secret_file
+    try:
+        manifest = resolve_manifest(
+            manifest=args.manifest,
+            fleet=fleet,
+            allow_empty_robots=True,
+            required=True,
+        )
+    except FileNotFoundError:
+        print(
+            f"error: fleet {fleet!r} not found. Create it first:\n"
+            f"  rosie fleet init --fleet {fleet}",
+            file=sys.stderr,
+        )
+        return 1
+    assert manifest is not None
+    fleet = manifest.fleet
+
+    manifest_secret = manifest.secret_file
 
     secure = bool(args.secure)
     password = resolve_router_auth(
@@ -106,18 +120,12 @@ def cmd_router(args: argparse.Namespace) -> int:
 
     # If operator asked for --secure but no password resolved, fail clearly.
     if secure and not password and not args.config:
-        if fleet:
-            print(
-                f"error: fleet {fleet!r} has no secret — run "
-                f"`rosie fleet init --fleet {fleet} --secure` or "
-                f"`rosie fleet secret --fleet {fleet} --set`",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                "error: could not resolve solo secret for --secure",
-                file=sys.stderr,
-            )
+        print(
+            f"error: fleet {fleet!r} has no secret — run "
+            f"`rosie fleet init --fleet {fleet} --secure` or "
+            f"`rosie fleet secret --fleet {fleet} --set`",
+            file=sys.stderr,
+        )
         return 1
 
     auth_enabled = bool(password) or (bool(args.config) and secure)
@@ -131,15 +139,12 @@ def cmd_router(args: argparse.Namespace) -> int:
         auth_note = "auth: using custom --config (credentials not auto-injected)"
     elif password:
         config, _dict = write_router_auth_files(fleet=fleet, password=password)
-        label = fleet or "solo"
-        auth_note = f"auth: enabled (usrpwd, user={label})"
+        auth_note = f"auth: enabled (usrpwd, user={fleet})"
     else:
         config = default_config_path()
         auth_note = "auth: disabled (open bus)"
 
-    if not fleet:
-        allowlist_note = "allowlist: n/a (solo)"
-    elif auth_enabled:
+    if auth_enabled:
         allowlist_note = "allowlist: host tools only (fleet list/wait need --secure)"
     else:
         allowlist_note = "allowlist: off (open fleet)"
@@ -157,14 +162,15 @@ def cmd_router(args: argparse.Namespace) -> int:
         )
     print("  host tools default to tcp/127.0.0.1:7447 (no ROSIE_CONNECT needed)")
     lan = local_ipv4s()
+    locators = router_listen_locators(lan, extra=args.listen)
     if lan:
-        print("  put one of these in robot.yaml network.connect (MCU → this laptop):")
+        print("  robots may use connect: auto (Linux scout / MCU codegen) or:")
         for ip in lan:
             print(f"    tcp/{ip}:7447")
     else:
         print(
-            "  (could not detect LAN IP — set robot.yaml network.connect to "
-            "tcp/<this-laptop-ip>:7447)"
+            "  (could not detect LAN IP — Linux robots can still use connect: auto; "
+            "MCU station codegen needs --connect tcp/<router-host-ip>:7447)"
         )
     cmd = [str(zenohd), "-c", str(config)]
     if args.listen:
@@ -173,10 +179,13 @@ def cmd_router(args: argparse.Namespace) -> int:
         cmd.extend(["--connect", args.connect])
     if args.extra:
         cmd.extend(args.extra)
-    try:
-        return subprocess.call(cmd)
-    except KeyboardInterrupt:
-        return 130
+    return _run_zenohd_with_announce(
+        cmd,
+        fleet=fleet,
+        locators=locators,
+        secure=auth_enabled,
+        password=password,
+    )
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -189,12 +198,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     p_router.add_argument(
         "--secure",
         action="store_true",
-        help="enable Zenoh usrpwd (solo: ~/.rosie/solo/secret; fleet: fleet secret)",
+        help="enable Zenoh usrpwd (fleet secret from fleet init --secure)",
     )
     p_router.add_argument(
         "--fleet",
-        default=None,
-        help="fleet id — topic scope / secret path (open unless --secure)",
+        default=os.environ.get("ROSIE_FLEET"),
+        help="fleet id (required; default: ROSIE_FLEET). Create with `rosie fleet init`.",
     )
     p_router.add_argument(
         "--open",
@@ -233,3 +242,99 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="extra args after -- passed to zenohd",
     )
     p_router.set_defaults(func=cmd_router)
+
+
+def router_listen_locators(
+    lan: list[str], *, extra: str | None = None, port: int = 7447
+) -> list[str]:
+    """Locators advertised on ``{fleet}/_fleet/router``."""
+    locs = [f"tcp/127.0.0.1:{port}"]
+    for ip in lan:
+        loc = lan_locator(ip, port)
+        if loc not in locs:
+            locs.append(loc)
+    if extra and extra not in locs:
+        locs.append(extra)
+    return locs
+
+
+def _wait_tcp(host: str, port: int, timeout_s: float = 10.0) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.25):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def _run_zenohd_with_announce(
+    cmd: list[str],
+    *,
+    fleet: str,
+    locators: list[str],
+    secure: bool,
+    password: str | None,
+) -> int:
+    """Start zenohd, then publish ``{fleet}/_fleet/router`` until it exits."""
+    from rosie import topics
+    from rosie.discovery import router_announcement
+    from rosie.session import Session
+
+    proc = subprocess.Popen(cmd)
+    stop = threading.Event()
+    session: Session | None = None
+    try:
+        if not _wait_tcp("127.0.0.1", 7447):
+            print(
+                "warning: zenohd did not accept tcp/127.0.0.1:7447; "
+                "fleet router announcement disabled",
+                file=sys.stderr,
+            )
+            return proc.wait()
+        session = Session(
+            robot="routerhost",
+            fleet=fleet,
+            connect="tcp/127.0.0.1:7447",
+            name="router-announce",
+            user=fleet if password else None,
+            password=password,
+        )
+        started = time.time()
+        print(f"  announcing {fleet}/_fleet/router at 1 Hz")
+
+        def beat() -> None:
+            while not stop.is_set() and session is not None:
+                try:
+                    session.publish_fleet(
+                        topics.ROUTER,
+                        router_announcement(
+                            fleet,
+                            locators=locators,
+                            secure=secure,
+                            started=started,
+                        ),
+                    )
+                except Exception as e:
+                    print(f"router announce failed: {e}", file=sys.stderr)
+                stop.wait(1.0)
+
+        threading.Thread(target=beat, name="rosie-router-announce", daemon=True).start()
+        return proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return 130
+    finally:
+        stop.set()
+        if session is not None:
+            try:
+                session.close()
+            except Exception:
+                pass
+        if proc.poll() is None:
+            proc.terminate()

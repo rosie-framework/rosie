@@ -13,9 +13,12 @@ DiffDriveKinematics::DiffDriveKinematics(const DiffDriveGeometry& geom,
 void DiffDriveKinematics::twistToChannels(float v, float w, float* out,
                                           size_t n) const {
   if (!out || n < 2) return;
-  float scale = teleop_.max_pwm > 1e-3f ? teleop_.max_pwm : 1.0f;
-  float left = (teleop_.kv * v - teleop_.kw * w) / scale;
-  float right = (teleop_.kv * v + teleop_.kw * w) / scale;
+  float wheel[2] = {0, 0};
+  twistToWheelVel(v, w, wheel, 2);
+  float v_full = teleop_.v_full;
+  if (v_full < 1e-6f) v_full = 1e-6f;
+  float left = wheel[0] / v_full;
+  float right = wheel[1] / v_full;
   if (left > 1.0f) left = 1.0f;
   if (left < -1.0f) left = -1.0f;
   if (right > 1.0f) right = 1.0f;

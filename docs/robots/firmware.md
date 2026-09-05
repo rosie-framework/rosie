@@ -3,8 +3,8 @@
 MCU path for Rosie: **PlatformIO / Arduino library** (ESP32 today; other
 PlatformIO boards later) plus the **DiffDriveStack** assembly that turns
 `robot.yaml` into a running mobile base. SoftAP Wi‑Fi is ESP32-specific and
-**optional** (solo-robot fallback). Fleets should join a dedicated AP as Wi‑Fi
-stations — see [Fleet networking](../fleet/networking.md).
+**optional** (one-robot fleet on the robot AP). Multi-robot fleets should join
+a dedicated AP as Wi‑Fi stations — see [Fleet networking](../fleet/networking.md).
 
 Shared topics, modes, goto, and velocity PID: [Mobile base](mobile-base.md).
 Linux peer: [Linux run](linux-run.md).
@@ -74,7 +74,7 @@ void loop() {
 `DiffDriveStack` wires the **selected** motors (`motors.driver`), optional
 encoders / IMU / camera / range, DiffDrive kinematics, Wi‑Fi + Zenoh via
 `rosie::mcuConnect`, SerialShell, `MobileBase`, and a `PidVelocityController`
-(default gains `0,0,0` = open-loop feedforward). See [Drivers](drivers.md) for
+(default gains `0,0,0` = open-loop `v_wheel / v_full`). See [Drivers](drivers.md) for
 supported ids and pin keys (e.g. TB6612 `pwmA`/`ain1`… vs L298N `ena`/`in1`…).
 
 Accessors: `stack.base()`, `stack.motors()` (`MotorDriver&`), `stack.kinematics()`,
@@ -171,7 +171,7 @@ void setup() {
   cfg.network_mode = "softap";       // or "station"
   cfg.wifi_ssid = "MyRobot-AP";
   cfg.wifi_password = "password";
-  cfg.zenoh_connect = "tcp/192.168.4.2:7447";
+  cfg.zenoh_connect = "tcp/192.168.4.2:7447";  // or the locator baked by codegen (`connect: auto`)
   cfg.zenoh_mode = "client";
   if (!rosie::mcuConnect(session, cfg)) {
     Serial.println("Zenoh not up — USB still works");
@@ -233,9 +233,9 @@ Typed messages (after codegen): `#include <rosie/std_msgs.h>` → `rosie::msg::T
 
 | Method | Role |
 |--------|------|
-| `Session(robot, fleet=nullptr)` / `setIdentity` | Robot (+ optional fleet) for relative names |
+| `Session(robot, fleet)` / `setIdentity` | Robot and fleet for relative names |
 | `getRobot` / `getFleet` / `hasFleet` | Identity accessors |
-| `resolveName(name, out, len)` | Relative → `{robot}/name` or `{fleet}/{robot}/name` |
+| `resolveName(name, out, len)` | Relative → `{fleet}/{robot}/name` |
 | `resolveFleetName(name, out, len)` | → `{fleet}/_fleet/name` (requires fleet) |
 | `open(locator, mode)` | Connect to `zenohd` (usually `"client"`); starts background tasks |
 | `ready()` | Session opened successfully |
@@ -246,8 +246,8 @@ Typed messages (after codegen): `#include <rosie/std_msgs.h>` → `rosie::msg::T
 | `publish` / `publishStr` | Raw bytes or C string |
 | `publishJson(pub_id, doc)` | JSON + auto `stamp` |
 
-Wi‑Fi helpers (ESP32): `rosie::softAP(ssid, password, channel = 1)` (solo
-fallback); `rosie::wifiStation(ssid, password, timeout_ms)` (fleet / dedicated AP).
+Wi‑Fi helpers (ESP32): `rosie::softAP(ssid, password, channel = 1)` (one-robot
+fleet); `rosie::wifiStation(ssid, password, timeout_ms)` (dedicated AP).
 Shared bring-up: `rosie::mcuConnect(session|base, cfg)` — SoftAP or station,
 then Zenoh open/`MobileBase::begin` with retries (same policy as DiffDriveStack).
 

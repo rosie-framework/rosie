@@ -43,6 +43,7 @@ def test_qos_put_kwargs_bulk():
 def _runtime() -> MobileBaseRuntime:
     raw = {
         "robot": "testbot",
+        "fleet": "lab",
         "platform": "linux",
         "network": {"connect": "tcp/127.0.0.1:7447"},
         "base": {

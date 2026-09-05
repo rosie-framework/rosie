@@ -127,10 +127,10 @@ class AuthTests(unittest.TestCase):
         )
 
     def test_bus_mode(self) -> None:
-        self.assertEqual(bus_mode(fleet=None, secure=False), "solo-open")
-        self.assertEqual(bus_mode(fleet=None, secure=True), "solo-secure")
         self.assertEqual(bus_mode(fleet="lab", secure=False), "fleet-open")
         self.assertEqual(bus_mode(fleet="lab", secure=True), "fleet-secure")
+        with self.assertRaises(ValueError):
+            bus_mode(fleet=None, secure=False)
 
     def test_resolve_secret_gated_by_secure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -153,24 +153,16 @@ class AuthTests(unittest.TestCase):
             "one-shot",
         )
 
-    def test_resolve_solo_secret_not_implicit(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            solo = Path(tmp) / "solo-secret"
-            write_secret_file(solo, "solo-leftover")
-            with mock.patch("rosie.auth.solo_secret_path", return_value=solo):
-                self.assertIsNone(resolve_secret_plaintext(secure=False))
-                self.assertEqual(
-                    resolve_secret_plaintext(secure=True), "solo-leftover"
-                )
+    def test_resolve_secret_without_fleet_is_none(self) -> None:
+        self.assertIsNone(resolve_secret_plaintext(secure=True))
 
-    def test_credentials_for_fleet_and_solo(self) -> None:
+    def test_credentials_for_requires_fleet(self) -> None:
         c = credentials_for(fleet="lab", password="s3cret")
         assert c is not None
         self.assertEqual(c.user, "lab")
         self.assertEqual(c.password, "s3cret")
-        c2 = credentials_for(fleet=None, password="s3cret")
-        assert c2 is not None
-        self.assertEqual(c2.user, "rosie")
+        with self.assertRaises(ValueError):
+            credentials_for(fleet=None, password="s3cret")
 
     def test_write_router_auth_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

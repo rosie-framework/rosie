@@ -11,11 +11,8 @@ struct DiffDriveGeometry {
 };
 
 struct DiffDriveTeleop {
-  /** Map body twist to pre-PWM scale (same units as historical TELEOP_KV/KW). */
-  float kv = 180.0f;
-  float kw = 40.0f;
-  /** Divide by this to produce MotorDriver [-1, 1] channels. */
-  float max_pwm = 100.0f;
+  /** Wheel speed (m/s) at |channel| = 1 (open-loop feedforward). */
+  float v_full = 1.0f;
 };
 
 /**

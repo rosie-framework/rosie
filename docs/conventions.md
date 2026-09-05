@@ -1,9 +1,9 @@
 # Conventions
 
-Shared contracts for Rosie. Robots choose a **robot id** (and optional **fleet**)
-and join a shared network (dedicated AP for fleets; SoftAP only for solo
-fallback); they should follow these topic names and units so laptop tools and
-other robots interoperate.
+Shared contracts for Rosie. Robots choose a **robot id** and a **fleet** and
+join a shared network (dedicated AP, or SoftAP for a one-robot fleet); they
+should follow these topic names and units so laptop tools and other robots
+interoperate.
 
 See also [Messages](messages.md) and [Bring Your Own Robot](robots/byor.md).
 
@@ -12,8 +12,8 @@ See also [Messages](messages.md) and [Bring Your Own Robot](robots/byor.md).
 | Entity | Role |
 |--------|------|
 | **Robot** | Required id; topic boundary for that machine |
-| **Fleet** | Optional shared scope for multi-robot work |
-| **Session** | Process-local Zenoh handle bound to a robot (+ fleet) |
+| **Fleet** | Required shared scope; create with `rosie fleet init` before the router |
+| **Session** | Process-local Zenoh handle bound to a robot and fleet |
 | **Topic** | Actual I/O (`pose`, `cmd_vel`, …)—not one Session per sensor |
 
 Mental model (bus vs Session vs Topic, host vs robot Sessions):
@@ -25,8 +25,7 @@ Zenoh key expressions are `/`-joined paths (no leading slash on the wire):
 
 | Scope | Pattern | Example |
 |-------|---------|---------|
-| Solo robot | `{robot}/{name}` | `car1/cmd_vel` |
-| Robot in a fleet | `{fleet}/{robot}/{name}` | `lab/car1/pose` |
+| Robot in a fleet | `{fleet}/{robot}/{name}` | `lab/car1/cmd_vel` |
 | Fleet-wide | `{fleet}/_fleet/{name}` | `lab/_fleet/estop` |
 | Absolute / global | strip leading `/` | `/global/estop` → `global/estop` |
 
@@ -37,18 +36,18 @@ The segment `_fleet` is **reserved** — do not use it as a robot id.
 `Session(robot=..., fleet=...)` prefixes **relative** names. A leading `/` marks
 an **absolute** name. Fleet-scoped helpers use `{fleet}/_fleet/...`.
 
-| Input | `robot="car1"` | `robot="car1", fleet="lab"` |
-|-------|----------------|------------------------------|
-| `"cmd_vel"` | `car1/cmd_vel` | `lab/car1/cmd_vel` |
-| `topics.POSE` | `car1/pose` | `lab/car1/pose` |
-| `"/global/estop"` | `global/estop` | `global/estop` |
-| `resolve_fleet_name("estop")` | (error: no fleet) | `lab/_fleet/estop` |
+| Input | `robot="car1", fleet="lab"` |
+|-------|------------------------------|
+| `"cmd_vel"` | `lab/car1/cmd_vel` |
+| `topics.POSE` | `lab/car1/pose` |
+| `"/global/estop"` | `global/estop` |
+| `resolve_fleet_name("estop")` | `lab/_fleet/estop` |
 
 ```python
 from rosie import Session, topics
 
-session = Session(robot="car1", name="teleop")
-session.publish_msg(topics.CMD_VEL, ...)   # → car1/cmd_vel
+session = Session(robot="car1", fleet="lab", name="teleop")
+session.publish_msg(topics.CMD_VEL, ...)   # → lab/car1/cmd_vel
 session.publish("/global/estop", {...})    # → global/estop
 ```
 
@@ -104,7 +103,7 @@ robot's own topics (e.g. ROS `/cmd_vel`, `/odom`).
 |----------|---------|
 | `ROSIE_CONNECT` | Host Zenoh endpoint (default `tcp/127.0.0.1:7447`). Override for a remote router. |
 | `ROSIE_ROBOT` | Default Session robot id |
-| `ROSIE_FLEET` | Default Session fleet id (optional) |
+| `ROSIE_FLEET` | Default Session / CLI fleet id (required unless passed explicitly) |
 | `ROSIE_PARAM_<NAME>` | Override a local parameter (`declare_parameter`) |
 | `ROSIE_FIRMWARE` | Override path to the PlatformIO firmware library |
 | `ROSIE_HOME` | Cache root (default `~/.rosie`) for zenohd / pio_libs |
@@ -180,7 +179,9 @@ effect until a strictly newer `cmd_vel` arrives.
 **Streams:** the next sample replaces the previous; `cmd_vel` also has a teleop
 deadman (`control.teleop.timeout_ms`). **Goto:** while navigating, an explicit
 `goal_id` equal to the active id is ignored (duplicate); a lower id is ignored
-as stale; a higher id preempts. When idle, any `goto` is accepted.
+as stale; a higher id preempts. When idle, any `goto` is accepted. Native
+robots emit `nav_result` `succeeded` / `canceled`; bridged Nav2 agents may also
+emit `aborted`.
 
 See [Mobile base → Control loop timing](robots/mobile-base.md#control-loop-timing).
 
@@ -188,16 +189,17 @@ See [Mobile base → Control loop timing](robots/mobile-base.md#control-loop-tim
 
 - Networking: **dedicated AP** + all robots/hosts as Wi‑Fi stations + one
   `rosie router` — see [Fleet networking](fleet/networking.md). SoftAP is
-  solo-robot fallback only.
+  a one-robot fleet topology, not a no-fleet mode.
 - Membership: [Fleet management](fleet/management.md)
   (`rosie fleet init` / `add`, `router --fleet`). Open vs secure:
   [Security](fleet/security.md) (`--secure` for usrpwd + allowlist).
 - Publish `presence` (~1 Hz) so hosts can discover live robots.
 - Host: `rosie fleet list|wait|topics`, `rosie topic list|echo`, `rosie bag …`,
   or `from rosie import Fleet, load_manifest`.
-- Fleet-wide signals: `estop`, `coord/leader` under `{fleet}/_fleet/...`.
 - Host sessions default to the local router (`tcp/127.0.0.1:7447`). Set
-  `ROSIE_CONNECT` only when the router is on another machine. MCU robots use
-  `robot.yaml` `network.connect` with the router host’s LAN IP.
+  `ROSIE_CONNECT` only when the router is on another machine. Robots use
+  `connect: auto` or an explicit locator — see
+  [How robots find the router](fleet/networking.md#how-robots-find-the-router).
+- Fleet-wide signals: `estop`, `coord/leader`, `router` under `{fleet}/_fleet/...`.
 - Prefer `std_msgs` for cross-robot contracts; use plain JSON or custom keys
   when a robot needs something outside that set.

@@ -5,7 +5,7 @@
 namespace rosie {
 
 /**
- * Start Wi-Fi SoftAP (solo-robot fallback).
+ * Start Wi-Fi SoftAP (one-robot fleet on the robot AP).
  *
  * Laptop joins this network and typically runs ``rosie router`` / zenohd.
  * For multi-robot fleets, prefer a dedicated travel-router AP and join as a

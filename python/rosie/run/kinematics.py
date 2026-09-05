@@ -22,9 +22,9 @@ class DiffDriveGeometry:
 
 @dataclass
 class DiffDriveTeleop:
-    kv: float = 180.0
-    kw: float = 40.0
-    max_pwm: float = 100.0
+    """Open-loop feedforward: channel = saturate(wheel_vel / v_full)."""
+
+    v_full: float = 1.0
 
 
 class DiffDriveKinematics:
@@ -65,9 +65,12 @@ class DiffDriveKinematics:
         self._wheel_vel = [0.0, 0.0]
 
     def twist_to_channels(self, v: float, w: float) -> list[float]:
-        scale = self.teleop.max_pwm if self.teleop.max_pwm > 1e-3 else 1.0
-        left = (self.teleop.kv * v - self.teleop.kw * w) / scale
-        right = (self.teleop.kv * v + self.teleop.kw * w) / scale
+        left_v, right_v = self.twist_to_wheel_vel(v, w)
+        v_full = self.teleop.v_full
+        if v_full < 1e-6:
+            v_full = 1e-6
+        left = left_v / v_full
+        right = right_v / v_full
         return [max(-1.0, min(1.0, left)), max(-1.0, min(1.0, right))]
 
     def twist_to_wheel_vel(self, v: float, w: float) -> list[float]:

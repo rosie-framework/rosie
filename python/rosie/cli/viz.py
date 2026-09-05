@@ -25,18 +25,13 @@ def cmd_viz(args: argparse.Namespace) -> int:
             )
         else:
             fleet = args.fleet
-            robot = args.robot
-            if not fleet and not robot:
+            if not fleet:
                 print(
-                    "error: provide --fleet, --robot, or --bag",
+                    "error: --fleet or ROSIE_FLEET is required (or pass --bag)",
                     file=sys.stderr,
                 )
                 return 2
-            # Prefer fleet when both set; solo SoftAP uses --robot only
-            if fleet and not args.bag:
-                bridge.start_live(fleet=fleet, connect=args.connect)
-            else:
-                bridge.start_live(robot=robot, connect=args.connect)
+            bridge.start_live(fleet=fleet, connect=args.connect)
         run_server(
             bridge,
             host=args.host,
@@ -67,7 +62,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--robot",
         default=os.environ.get("ROSIE_ROBOT"),
-        help="single robot id (solo SoftAP; default: ROSIE_ROBOT)",
+        help="unused for live (fleet view); kept for bag filters / compatibility",
     )
     p.add_argument("--connect", default=None, help="override ROSIE_CONNECT")
     p.add_argument(

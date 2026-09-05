@@ -177,12 +177,9 @@ class VizBridge:
         self._mode = "live"
         self._connect = connect
         self._fleet = fleet
-        if fleet:
-            self._start_fleet_live(fleet, connect)
-        elif robot:
-            self._start_robot_live(robot, connect, fleet=None)
-        else:
-            raise ValueError("provide --fleet or --robot")
+        if not fleet:
+            raise ValueError("fleet is required")
+        self._start_fleet_live(fleet, connect)
 
     def _start_fleet_live(self, fleet: str, connect: str | None) -> None:
         from rosie.fleet import Fleet

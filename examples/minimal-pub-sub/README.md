@@ -4,7 +4,8 @@ Requires `pip install -e ../../python` (and `rosie setup` once while online).
 
 ```bash
 # terminal 1
-rosie router
+rosie fleet init --fleet lab   # once
+rosie router --fleet lab
 # escape hatch: zenohd -c ../../tools/zenoh.json5
 
 # terminal 2

@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 
 from rosie import topics
+from rosie.connect import resolve_connect
 from rosie.messages import encode_json
-from rosie.session import Session, resolve_connect
 from rosie.agent.config import (
     AgentConfig,
     default_config_path,
@@ -23,6 +23,7 @@ from rosie.agent.config import (
 def run_agent(cfg: AgentConfig) -> int:
     """Foreground ROS 2 ↔ Rosie bridge (blocks until interrupt)."""
     from rosie.agent.backends.ros2 import Ros2Bridge
+    from rosie.session import Session
 
     session: Session | None = None
     bridge = None
@@ -116,6 +117,8 @@ def init_agent(
         )
     robot_id = robot or os.environ.get("ROSIE_ROBOT") or "robot"
     fleet_id = fleet if fleet is not None else os.environ.get("ROSIE_FLEET")
+    if not fleet_id:
+        raise ValueError("--fleet or ROSIE_FLEET is required")
     connect_id = connect if connect is not None else os.environ.get("ROSIE_CONNECT")
     # Resolve topics from profile
     cfg = load_agent_config(
@@ -170,8 +173,6 @@ def install_agent(
         env_lines.append(f"Environment=ROSIE_ROBOT={cfg.robot}")
     if cfg.fleet:
         env_lines.append(f"Environment=ROSIE_FLEET={cfg.fleet}")
-    if cfg.connect:
-        env_lines.append(f"Environment=ROSIE_CONNECT={cfg.connect}")
 
     unit = f"""[Unit]
 Description=Rosie agent (ROS 2 ↔ Rosie bridge)
@@ -204,13 +205,29 @@ def doctor(cfg: AgentConfig) -> int:
     ok = True
     print(f"robot:    {cfg.robot}")
     print(f"fleet:    {cfg.fleet or '—'}")
+    from rosie.connect import is_auto_connect
+
     connect = resolve_connect(cfg.connect)
-    print(f"connect:  {connect}")
+    if is_auto_connect(connect):
+        print(f"connect:  {connect} (will scout + verify fleet)")
+    else:
+        print(f"connect:  {connect}")
     print(f"cmd_vel:  {cfg.cmd_vel}")
     print(f"odom:     {cfg.odom}")
+    pose_src = cfg.pose or cfg.odom
+    pose_note = " (ROS pose topic)" if cfg.pose else " (from odom)"
+    print(f"pose:     {pose_src}{pose_note}")
+    print(f"nav2:     {cfg.navigate_to_pose}")
+    print(f"frame:    {cfg.frame_id}")
     print(f"profile:  {cfg.profile or '—'}")
     if cfg.path:
         print(f"config:   {cfg.path}")
+    if (cfg.frame_id or "map") == "map" and not cfg.pose:
+        print(
+            "warning:  frame_id is map but pose comes from odom; "
+            "set ros2.pose (e.g. /amcl_pose) so goto coordinates match pose",
+            file=sys.stderr,
+        )
 
     try:
         from rosie.agent.backends.ros2 import require_rclpy
@@ -222,6 +239,15 @@ def doctor(cfg: AgentConfig) -> int:
         ok = False
 
     try:
+        from nav2_msgs.action import NavigateToPose  # noqa: F401
+
+        print("nav2_msgs: ok")
+    except ImportError:
+        print("nav2_msgs: missing (goto will abort until Nav2 is installed)")
+
+    try:
+        from rosie.session import Session
+
         session = Session(
             robot=cfg.robot,
             fleet=cfg.fleet,

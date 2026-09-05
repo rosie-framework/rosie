@@ -172,7 +172,7 @@ drivers:
   - id: softap
     category: network
     status: supported
-    description: ESP32 SoftAP solo fallback
+    description: ESP32 SoftAP (one-robot fleet on the robot AP)
     yaml_key: network.mode
     platforms: [mcu]
 

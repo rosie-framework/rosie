@@ -9,7 +9,7 @@ Example (robot wrapper)::
     from rosie import Session, topics
     from rosie.tools.teleop_twist import run_teleop
 
-    with Session(robot="car1", name="teleop") as session:
+    with Session(robot="car1", fleet="lab", name="teleop") as session:
         run_teleop(session, v_fwd=0.25, v_turn=1.2,
                    on_stop=lambda: session.publish(
                        topics.CMD, b'{"op":"stop"}', qos=Qos.COMMAND))

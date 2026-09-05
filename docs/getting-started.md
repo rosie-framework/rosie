@@ -34,14 +34,18 @@ rosie setup
 
 This downloads a pinned `zenohd` into `~/.rosie/bin/` (checksum-verified).
 
-## 3. Start the router
+## 3. Create a fleet, then start the router
+
+A fleet is required — even for one robot. `fleet init` writes the host home
+(`~/.rosie/fleets/<id>/`); it does **not** start zenohd.
 
 ```bash
-rosie router
+rosie fleet init --fleet lab
+rosie router --fleet lab
 ```
 
-Listens on `tcp/0.0.0.0:7447` using the packaged listen config (works for both
-dedicated-AP fleets and solo SoftAP).
+The router listens on `tcp/0.0.0.0:7447`. It will not create the fleet for you;
+if the home is missing it exits and tells you to run `fleet init`.
 
 Check the install:
 
@@ -58,9 +62,10 @@ have not already: `pip install -e "python[mcu]"`.
 
 ```bash
 mkdir mybot && cd mybot
-rosie mcu init --robot mybot
+rosie mcu init --robot mybot --fleet lab
 # edit robot.yaml — motors.driver / pins, SSID/password, geometry
 # (default motors.driver: tb6612; also l298n, … — see Drivers)
+rosie fleet add --fleet lab --from robot.yaml
 rosie mcu setup && rosie mcu flash
 rosie drive --config robot.yaml
 ```
@@ -87,7 +92,7 @@ void loop() {
 Useful host commands once the robot is on the bus:
 
 ```bash
-rosie teleop --robot mybot          # WASD → cmd_vel only
+rosie teleop --robot mybot --fleet lab   # WASD → cmd_vel only
 rosie drive --config robot.yaml     # REPL: waypoints, teleop, camera, …
 rosie mcu monitor
 ```
@@ -116,8 +121,8 @@ Details: [Linux run](robots/linux-run.md).
 ### C. ROS / commercial robot (`rosie agent`)
 
 Keep the vendor ROS 2 stack on the robot; run **`rosie agent`** beside it so
-the fleet sees the same `cmd_vel` / `pose` / `presence` contract. Laptop stays
-Rosie-only (no ROS).
+the fleet sees the same `cmd_vel` / `pose` / `presence` contract (and `goto` /
+`nav_result` when Nav2 is up). Laptop stays Rosie-only (no ROS).
 
 ```bash
 # on the robot (after ROS bring-up so /cmd_vel and /odom exist)
@@ -126,62 +131,67 @@ source ~/rosie-venv/bin/activate
 pip install rosie-framework
 # source /opt/ros/$ROS_DISTRO/setup.bash
 
-rosie agent init --robot turtle1 --fleet lab --connect tcp/<router-ip>:7447
+rosie agent init --robot turtle1 --fleet lab
+# optional: --connect tcp/<router-host-ip>:7447  (skip if connect: auto works)
 # optional: --profile turtlebot4
 rosie agent doctor
 rosie agent run
 ```
 
 From the laptop: `rosie teleop --robot turtle1`, `rosie fleet list`, `rosie viz`
-— same tools as native robots. Full detail: [Bridges](robots/bridges.md).
+— same tools as native robots. `rosie drive` needs Nav2 on the robot. Full
+detail: [Bridges](robots/bridges.md).
 
 ## 5. Networking
 
 Choose how the laptop and robot(s) share a LAN with the router from step 3.
 
-### Fleet / dedicated AP (recommended)
+### Dedicated AP (recommended)
 
 For one or more robots (including heterogeneous types):
 
-1. Power a **dedicated AP** (travel / pocket router) with a fixed SSID — avoid
-   home/venue Wi‑Fi when you want portable demos.
-2. Join the laptop and all robots to that SSID as **stations**.
-3. `rosie router` on the laptop (or a Pi on the same LAN).
-4. Point every robot (and host sessions) at `tcp/<router-host-ip>:7447`
-   via firmware config / `ROSIE_CONNECT`.
-5. `rosie fleet list --fleet <id>` / teleop as usual.
-6. Optional: `rosie fleet wait --manifest …`, `rosie topic list --fleet <id>`,
+1. `rosie fleet init --fleet <id>` (once, before the router).
+2. Power a **dedicated AP** (travel / pocket router) with a fixed SSID — avoid
+   home/venue Wi‑Fi when you want portable research and field deployments.
+3. Join the laptop and all robots to that SSID as **stations**.
+4. `rosie router --fleet <id>` on the router host (laptop, or a Pi on the same LAN).
+5. Robots: `connect: auto` (Linux scout / MCU codegen) or an explicit
+   `tcp/<router-host-ip>:7447`. See [How robots find the router](fleet/networking.md#how-robots-find-the-router).
+6. `rosie fleet list --fleet <id>` / teleop as usual.
+7. Optional: `rosie fleet wait --manifest …`, `rosie topic list --fleet <id>`,
    `rosie bag record --fleet <id> -o run.rosiebag` (or `.rosiebag.gz`),
    `rosie bag info run.rosiebag`.
-7. Optional spatial view: `rosie viz --fleet <id>` (opens a local browser map
-   of poses / trails). Solo SoftAP: `rosie viz --robot <id>`. Offline:
-   `rosie viz --bag run.rosiebag` (optional `--start` / `--end` / `--key`
-   filters, same as `rosie bag play`). Details: [Viz](host/viz.md).
+8. Optional spatial view: `rosie viz --fleet <id>` (opens a local browser map
+   of poses / trails). Offline: `rosie viz --bag run.rosiebag` (optional
+   `--start` / `--end` / `--key` filters, same as `rosie bag play`).
+   Details: [Viz](host/viz.md).
 
 Full detail: [Fleet networking](fleet/networking.md). Membership:
 [Fleet management](fleet/management.md). Open vs secure modes:
 [Security](fleet/security.md).
 
-### Solo SoftAP fallback (one MCU)
+### One-robot SoftAP (still a fleet)
 
-When you have a single ESP32 and no travel router:
+When you have a single ESP32 and no travel router. The robot still belongs
+to a fleet (`{fleet}/{robot}/pose`):
 
 1. `pip install` + `rosie setup` (+ `rosie mcu setup`) on normal Wi‑Fi.
-2. Join the **robot** SoftAP. Confirm host IP (often **192.168.4.2**).
-3. `rosie router`
-4. If the MCU finished connect retries before the router was up, **reset the board**.
-5. Run host sessions / `rosie teleop --robot <id>`.
+2. `rosie fleet init --fleet lab` (if you have not already).
+3. Join the **robot** SoftAP. Confirm host IP (often **192.168.4.2**).
+4. `rosie router --fleet lab`
+5. If the MCU finished connect retries before the router was up, **reset the board**.
+6. Run host sessions / `rosie teleop --robot <id> --fleet lab`.
 
-This is **one robot ↔ one host** only — not the multi-robot path.
+This is **one robot ↔ one host** only — two SoftAP cars need a dedicated AP.
 Diagram: [Architecture](architecture.md).
 
 ## Environment defaults
 
 | Variable | Meaning |
 |----------|---------|
-| `ROSIE_CONNECT` | Zenoh endpoint for host sessions (default `tcp/127.0.0.1:7447`). Set when the router is remote. MCU robots use `robot.yaml` `network.connect` (LAN IP). |
+| `ROSIE_CONNECT` | Zenoh endpoint for host sessions (default `tcp/127.0.0.1:7447`). Set when the router is remote, or `auto` to scout. MCU / Linux robots use `network.connect` / `agent.yaml` `connect` — see [How robots find the router](fleet/networking.md#how-robots-find-the-router). |
 | `ROSIE_ROBOT` | Default robot id for sessions / `rosie teleop` |
-| `ROSIE_FLEET` | Optional default fleet id |
+| `ROSIE_FLEET` | Default fleet id for host tools / Session (required unless `--fleet` or yaml) |
 | `ROSIE_ZENOHD` | Override path to a `zenohd` binary |
 | `ROSIE_HOME` | Cache dir (default `~/.rosie`) |
 | `ROSIE_PORT` | Default serial port for `rosie mcu flash` / `rosie mcu monitor` |
@@ -198,9 +208,9 @@ More identity and topic rules: [Conventions](conventions.md).
 | `zenohd not found` | Run `rosie setup`, or put `zenohd` on PATH / set `ROSIE_ZENOHD` |
 | PlatformIO missing | `pip install "rosie-framework[mcu]"` |
 | `snap` / `cam` fails or prints “opencv not installed” | `pip install "rosie-framework[camera]"` (OpenCV for host viewing only) |
-| Publish/subscribe wrong keys | Use relative names under `Session(robot=...)`, or absolute `/...` ([Conventions](conventions.md)) |
+| Publish/subscribe wrong keys | Use relative names under `Session(robot=..., fleet=...)`, or absolute `/...` ([Conventions](conventions.md)) |
 | Firmware JSON publish fails / truncated | Payload exceeds ~384-byte MCU buffer ([Firmware](robots/firmware.md)) |
-| Trying to run two SoftAP cars at once | SoftAP is solo-only — use a [dedicated AP](fleet/networking.md) |
+| Trying to run two SoftAP cars at once | SoftAP is one-robot-only — use a [dedicated AP](fleet/networking.md) |
 
 
 ## Next
@@ -211,7 +221,7 @@ More identity and topic rules: [Conventions](conventions.md).
 - [Drivers](robots/drivers.md) — inventory (`rosie drivers list`)
 - [Fleet networking](fleet/networking.md) — dedicated AP, SoftAP fallback, discovery
 - [Fleet management](fleet/management.md) — init / add / router day-to-day
-- [Security](fleet/security.md) — solo/fleet × open/secure, allowlist, ESP32 limits
+- [Security](fleet/security.md) — fleet-open vs fleet-secure, allowlist, ESP32 limits
 - [Writing sessions](host/writing-sessions.md)
 - [MobileRobot](host/mobile-robot.md) — host MobileBase client API
 - [Fleet](host/fleet.md) — host fleet discovery / wait / estop API

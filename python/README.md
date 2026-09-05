@@ -8,7 +8,8 @@ pip install -e ".[camera]"       # + OpenCV for `rosie drive` snap / cam
 # or: pip install -e ".[mcu,camera,linux]"
 
 rosie setup
-rosie router
+rosie fleet init --fleet lab
+rosie router --fleet lab
 rosie doctor
 # MCU boards only (not Pi/Jetson):
 # rosie mcu setup && rosie mcu flash

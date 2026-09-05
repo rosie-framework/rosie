@@ -31,9 +31,9 @@ enum class Qos {
 };
 
 /**
- * Zenoh session for ESP32 (zenoh-pico), bound to a robot (+ optional fleet).
+ * Zenoh session for ESP32 (zenoh-pico), bound to a robot and fleet.
  *
- * Relative topic names resolve to ``{robot}/name`` or ``{fleet}/{robot}/name``.
+ * Relative topic names resolve to ``{fleet}/{robot}/name``.
  * A leading ``/`` makes a name absolute (leading slashes stripped for Zenoh).
  * Fleet-scoped names resolve via ``resolveFleetName`` → ``{fleet}/_fleet/name``.
  */
@@ -43,14 +43,13 @@ class Session {
   static constexpr int kMaxSubs = 8;
   static constexpr size_t kMaxKeyLen = 128;
 
-  explicit Session(const char* robot = "robot", const char* fleet = nullptr);
+  explicit Session(const char* robot = "robot", const char* fleet = "");
   ~Session();
 
-  /** Set identity before declaring pubs/subs. ``fleet`` may be nullptr/empty. */
-  void setIdentity(const char* robot, const char* fleet = nullptr);
+  /** Set identity before declaring pubs/subs. ``fleet`` must be non-empty. */
+  void setIdentity(const char* robot, const char* fleet);
 
   const char* getRobot() const { return robot_; }
-  /** Empty string when no fleet. */
   const char* getFleet() const { return fleet_; }
   bool hasFleet() const { return fleet_[0] != '\0'; }
 

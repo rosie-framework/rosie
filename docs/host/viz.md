@@ -13,7 +13,6 @@ rosie viz --fleet lab      # http://127.0.0.1:8765
 | Command | What you see |
 |---------|----------------|
 | `rosie viz --fleet <id>` | Live 2D map of every robot publishing `pose` under that fleet |
-| `rosie viz --robot <id>` | Single-robot session |
 | `rosie viz --bag run.rosiebag` | Offline scrub of a `.rosiebag` (same UI schema) |
 
 Optional flags: `--host`, `--port` (default `8765`), `--stale` (seconds before a live pose fades), `--rate` (bag playback), `--no-browser`, `--connect`.

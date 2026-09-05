@@ -12,7 +12,8 @@ import zenoh
 
 from .manifest import FleetManifest
 from .messages import decode_json
-from .session import qos_put_kwargs, resolve_connect, Qos
+from .connect import is_auto_connect, resolve_connect
+from .session import qos_put_kwargs, Qos
 from .std_msgs import Cmd, LeaderClaim, RobotPresence
 
 
@@ -61,7 +62,18 @@ class Fleet:
         from .session import _open_zenoh
 
         self.fleet = _normalize_fleet(fleet)
-        self.connect = resolve_connect(connect)
+        requested = resolve_connect(connect)
+        if is_auto_connect(requested):
+            from .discovery import resolve_auto_connect
+
+            self.connect = resolve_auto_connect(
+                self.fleet,
+                user=user,
+                password=password,
+                secure=secure,
+            )
+        else:
+            self.connect = requested
         self.allowlist = set(allowlist) if allowlist is not None else None
         self._session = _open_zenoh(
             self.connect,
@@ -72,8 +84,10 @@ class Fleet:
         )
         self._subs: list[Any] = []
         self._presence_sub: Any | None = None
+        self._router_sub: Any | None = None
         self._lock = threading.Lock()
         self._presence: dict[str, tuple[float, RobotPresence]] = {}
+        self._router: tuple[float, dict[str, Any]] | None = None
         self._leader: LeaderClaim | None = None
         self._leader_stamp: float = 0.0
 
@@ -145,6 +159,34 @@ class Fleet:
         key = f"{self.fleet}/*/presence"
         self._presence_sub = self._session.declare_subscriber(key, self._on_presence)
         self._subs.append(self._presence_sub)
+
+    def _on_router(self, sample: zenoh.Sample) -> None:
+        from .discovery import parse_router_announcement
+
+        parsed = parse_router_announcement(sample.payload.to_bytes())
+        if parsed is None:
+            return
+        with self._lock:
+            self._router = (time.time(), parsed)
+
+    def _ensure_router_sub(self) -> None:
+        if self._router_sub is not None:
+            return
+        key = self.fleet_key("router")
+        self._router_sub = self._session.declare_subscriber(key, self._on_router)
+        self._subs.append(self._router_sub)
+
+    def router(self, *, ttl_s: float = 3.0, wait_s: float = 0.5) -> dict[str, Any] | None:
+        """Latest ``{fleet}/_fleet/router`` announcement, or None if stale/missing."""
+        self._ensure_router_sub()
+        time.sleep(max(0.0, wait_s))
+        with self._lock:
+            if self._router is None:
+                return None
+            ts, payload = self._router
+            if time.time() - ts > ttl_s:
+                return None
+            return dict(payload)
 
     def robots(
         self,

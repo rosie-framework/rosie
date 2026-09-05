@@ -90,15 +90,10 @@ bool Session::resolveName(const char* name, char* out, size_t out_len) const {
     return true;
   }
 
-  if (fleet_[0]) {
-    size_t need = strlen(fleet_) + 1 + strlen(robot_) + 1 + strlen(name) + 1;
-    if (need > out_len) return false;
-    snprintf(out, out_len, "%s/%s/%s", fleet_, robot_, name);
-  } else {
-    size_t need = strlen(robot_) + 1 + strlen(name) + 1;
-    if (need > out_len) return false;
-    snprintf(out, out_len, "%s/%s", robot_, name);
-  }
+  if (!fleet_[0]) return false;
+  size_t need = strlen(fleet_) + 1 + strlen(robot_) + 1 + strlen(name) + 1;
+  if (need > out_len) return false;
+  snprintf(out, out_len, "%s/%s/%s", fleet_, robot_, name);
   return true;
 }
 

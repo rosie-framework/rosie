@@ -8,8 +8,9 @@ see also [Motivation](../motivation.md) (Rosie vs ROS 2).
 ## Recommended topology (fleets)
 
 Use a **dedicated access point** you control — typically a pocket / travel
-router (e.g. GL.iNet) with its own SSID. Do **not** put the fleet on home or
-venue Wi‑Fi if you want portable demos and labs that move between networks.
+router (e.g. GL.iNet) with its own SSID. Do **not** put the fleet on home,
+venue, or site Wi‑Fi if you want portable research and field deployments that
+move between networks.
 
 ```text
                     ┌─────────────────┐
@@ -30,13 +31,14 @@ Bring-up:
 
 1. Power the dedicated AP (fixed SSID / password you document for the fleet).
 2. Join the laptop (and any Linux robots) to that SSID.
-3. On the laptop (or a Pi on the same LAN): `rosie router`.
-   It prints suggested `network.connect` values (LAN IP) for MCU `robot.yaml`.
+3. On the **router host** (laptop, or a Pi on the same LAN):
+   `rosie fleet init --fleet <id>` (once), then `rosie router --fleet <id>`.
+   It announces `{fleet}/_fleet/router` and prints LAN locators.
    Host tools on that machine default to `tcp/127.0.0.1:7447` — no
    `ROSIE_CONNECT` required for the common case.
-4. Point every **robot’s** Zenoh connect endpoint at the host running the router
-   (e.g. `tcp/<laptop-ip>:7447` in `robot.yaml`). Only set `ROSIE_CONNECT` on
-   hosts when the router is **not** on localhost (remote router machine).
+4. Point robots at the router with `connect: auto` or an explicit
+   `tcp/<router-host-ip>:7447` — see [How robots find the router](#how-robots-find-the-router).
+   Only set `ROSIE_CONNECT` on hosts when the router is **not** on localhost.
 5. Flash / boot robots as **Wi‑Fi stations** on that SSID (not as SoftAPs).
    Firmware: `network.mode: station` in `robot.yaml` (DiffDriveStack /
    `rosie::mcuConnect`) or `rosie::wifiStation(ssid, password)` for custom glue
@@ -47,13 +49,15 @@ This works for **heterogeneous** fleets: ESP32 MCUs and Pi/Jetson robots are
 all clients on the same L2 network. Identity stays `(fleet, robot)`; capability
 differences live in topics and presence, not in who owns the AP.
 
-## Solo SoftAP fallback (one robot)
+## One-robot SoftAP (still a fleet)
 
 For a **single** MCU robot with no travel router, the robot may still run
 `rosie::softAP`, the laptop joins that AP, and the MCU connects as a Zenoh
-client to the laptop (often `tcp/192.168.4.2:7447`).
+client to the laptop (often `tcp/192.168.4.2:7447`). Init the fleet first
+(`rosie fleet init --fleet <id>`), then `rosie router --fleet <id>`. Topics
+are still `{fleet}/{robot}/…`.
 
-That pattern is **one robot ↔ one host**. It is not the fleet path.
+That pattern is **one robot ↔ one host**. Two SoftAP cars need a dedicated AP.
 
 ## Laptop as AP (optional)
 
@@ -62,17 +66,42 @@ Sharing, Linux `hostapd`, or a USB Wi‑Fi dongle in AP mode). Robots join the
 laptop SSID; `rosie router` still runs on the laptop. Prefer a dedicated
 travel router when you can — laptop SoftAP behavior varies by OS.
 
+## How robots find the router
+
+Rosie stays **brokered**: sessions open in Zenoh **client** mode against one
+`rosie router`. Scouting only locates that router; it never routes data.
+A mismatched fleet announcement is rejected.
+
+| Setting | MCU | Linux (`rosie agent` / `rosie run`) | Host tools |
+|---------|-----|-------------------------------------|------------|
+| `connect: auto` | Codegen bakes the router-host LAN IP at flash time | Runtime scout + `{fleet}/_fleet/router` check | Treated as unset → `ROSIE_CONNECT` then localhost |
+| `tcp/<ip>:7447` (explicit) | Baked as written; no scout | Connect there; no scout | Same |
+| omitted | SoftAP → `tcp/192.168.4.2:7447`. Station → same as `auto` | Same as `auto` | localhost |
+
+Use **`auto`** for field and ad-hoc networks where the router-host address is
+not stable. Use an **explicit locator** when multicast is blocked, when you
+need a reproducible bag against a declared topology, or when a multi-homed
+host would advertise the wrong interface.
+
+`rosie doctor --scout` probes whether multicast scouting works on this LAN
+before you depend on `auto`.
+
+Scout failure modes: campus / venue Wi‑Fi and AP client isolation often block
+multicast; scout packets use TTL 1 so they do not cross a subnet; Wi‑Fi
+multicast is sent at the lowest basic rate; containers without host networking
+break it; a multi-homed router host may advertise addresses the robot cannot
+reach. In those cases set `tcp/<router-host-ip>:7447`.
+
 ## Discovery and visibility
 
 | Concern | Rosie approach |
 |---------|----------------|
-| Middleware discovery | Brokered via Zenoh router; robots/hosts are **clients** with an explicit connect locator |
-| Who is alive? | Application `presence` + `rosie fleet list` / `Fleet.robots()` |
+| Middleware discovery | Brokered clients → one router. Linux `connect: auto` scouts, then verifies `{fleet}/_fleet/router` |
+| Who is alive? | Application `presence` + `rosie fleet list` / `Fleet.robots()` (router announcement shown too) |
 | Who sees whom? | Topic paths under `{fleet}/{robot}/…` and `{fleet}/_fleet/…` — subscribe only to what you need |
 
 Host sessions default to `tcp/127.0.0.1:7447` (local `rosie router`). Override with
 `ROSIE_CONNECT` or `connect=` only when the router runs on another machine.
-MCU `robot.yaml` `network.connect` must still use the router host’s **LAN** IP.
 
 ## Fleet-native tooling
 

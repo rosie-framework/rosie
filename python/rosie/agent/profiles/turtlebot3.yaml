@@ -1,3 +1,5 @@
 # TurtleBot3 (ROS 2) topic defaults.
 cmd_vel: /cmd_vel
 odom: /odom
+navigate_to_pose: /navigate_to_pose
+frame_id: map

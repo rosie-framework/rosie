@@ -14,4 +14,4 @@
    the unit tests. `pytest python/tests` must pass without ROS and without
    Docker.
 
-See [docs/motivation.md](docs/motivation.md) for what Rosie is for.
+See [Why use Rosie](README.md#why-use-rosie) for what Rosie is for.

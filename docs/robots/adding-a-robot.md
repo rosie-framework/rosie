@@ -2,6 +2,8 @@
 
 The robot needs a Linux computer, ROS 2 (Humble, Jazzy, or Lyrical), and a driver that already publishes a pose and subscribes to a velocity. Rosie does not install that stack.
 
+Rosie never talks to a motor board or microcontroller directly; the fleet only sees the ROS 2 driver on the Linux computer. If your base has no ROS 2 driver, write a small node (or a `ros2_control` hardware interface) that turns the board's serial protocol into `/cmd_vel` and `/odom`. micro-ROS on the board is also fine; the fleet still talks to the Linux topics.
+
 ## Setup
 
 Copy the repo onto the robot and install it as in [Getting started](../getting-started.md). Then:
@@ -27,14 +29,17 @@ Setup downloads `zenoh-bridge-ros2dds` 1.9.0 for this machine (Linux aarch64 or 
 | `rosmaster_x3` | Humble | `Twist` | Yahboom Rosmaster X3. EKF pose on `/odom` |
 | `rosmaster_m3_pro` | Humble | `Twist` | Same topics. The STM32 base is behind the vendor driver |
 
-Override a topic without a new file:
+To change a topic on the laptop side without writing a new profile, pass overrides in Python:
 
-```bash
-rosie robot setup --fleet lab --robot bot1 --profile rosmaster_x3 \
-  --connect tcp/192.168.1.10:7447
+```python
+from rosie.profiles import load_profile
+
+profile = load_profile("rosmaster_x3", {
+    "pose": {"topic": "/amcl_pose", "type": "geometry_msgs/msg/PoseWithCovarianceStamped"},
+})
 ```
 
-In Python, `load_profile("rosmaster_x3", {"pose": {"topic": "/amcl_pose", "type": "geometry_msgs/msg/PoseWithCovarianceStamped"}})`. The manifest can store the same overrides on a robot entry (`profile` and `overrides`).
+`MobileRobot(..., profile_overrides={...})` takes the same dict, and the manifest can store it on a robot entry (`profile` and `overrides`). `rosie robot setup` has no override flag; if the bridge needs to carry a different topic, write a profile.
 
 To write a profile, copy `python/rosie/profiles/default_ros2.yaml`. You need `cmd_vel` (topic and type), `pose` (topic and type), and a `link_loss` policy. Add `nav` and `camera` if the robot has them. `bridge.allow` is the allow list setup writes: publishers the laptop may hear, subscribers the laptop may command, and action servers. `bridge.rates` is `pub_max_frequencies` (for example a camera at 2 Hz).
 

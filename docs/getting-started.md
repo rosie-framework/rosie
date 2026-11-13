@@ -169,7 +169,7 @@ Use secure mode on any network you do not control. Every machine on the fleet th
 
 4. On the laptop, add `--secure` to `fleet list`, `teleop`, `viz`, and the other tools.
 
-More detail: [Security](fleet/security.md).
+More detail: [Security](fleet.md#security).
 
 ## Next
 

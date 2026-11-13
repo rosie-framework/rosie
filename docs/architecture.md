@@ -1,160 +1,50 @@
 # Architecture
 
-Rosie is a **brokered fleet bus**: processes join a shared Zenoh router
-(`rosie router` / zenohd) and exchange JSON or raw bytes on named topics.
-Hosts run the Python package; MCUs run the Rosie firmware library
-(`rosie mcu flash`). Why this shape: [Motivation](motivation.md).
+Rosie is the laptop side of a ROS 2 fleet. The robot keeps its ROS graph. Zenoh is the only thing that crosses the network.
 
-```text
-              shared Wi‑Fi (everyone is a station*)
-┌─────────────────────────────────────────────────────┐
-│                                                     │
-│   ┌────────────────┐    Zenoh     ┌──────────────┐  │
-│   │ Host           │◄────────────►│ Robot(s)     │  │
-│   │ laptop / Pi /… │  JSON/bytes  │ ESP32 / …    │  │
-│   │                │              │              │  │
-│   │ rosie router   │   :7447      │ Session      │  │
-│   │ + app Sessions │              │ (firmware /  │  │
-│   │                │              │  rosie run)  │  │
-│   └────────▲───────┘              └──────▲───────┘  │
-│            │                             │          │
-│            └──────────────┬──────────────┘          │
-│                           │                         │
-│                  ┌────────┴────────┐                │
-│                  │    Wi‑Fi AP     │                │
-│                  │ dedicated AP,   │                │
-│                  │ laptop AP, or   │                │
-│                  │ robot SoftAP*   │                │
-│                  └─────────────────┘                │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph laptop [Laptop]
+    tools[Rosie CLI and Python API]
+    router[zenohd]
+  end
+  subgraph robot [Robot]
+    bridge[zenoh-bridge-ros2dds]
+    watchdog[Rosie watchdog]
+    ros[ROS 2 and Nav2]
+    mcu[Motor board behind a ROS driver]
+  end
+  tools --> router
+  router -->|"lab/bot1/... CDR"| bridge
+  router -->|"fleet plane JSON"| watchdog
+  bridge --> ros
+  watchdog --> ros
+  ros --> mcu
 ```
 
-\* **Fleet path:** a dedicated AP (or laptop AP); all robots join as stations.
-\* **Solo fallback:** one robot runs SoftAP and the host joins it — not for
-multi-robot fleets. Details below and in [Fleet networking](fleet/networking.md).
+## Two planes
 
-## Bus, Session, Topic
+**Robot data** is CDR, the ROS 2 serialization, on keys the bridge derives from a ROS name. A bridge namespace `/lab/bot1` and a topic `/cmd_vel` become the Zenoh key `lab/bot1/cmd_vel`. Actions use the same prefix plus `/_action/send_goal`, `cancel_goal`, `get_result`, `feedback`, and `status`. The laptop encodes and decodes with the types in the robot's profile. The payload is unchanged ROS, so a ROS node on the far side can deserialize it.
 
-Three layers to keep straight:
+**Fleet plane** is a small set of JSON keys Rosie owns, because ROS has no equivalent: presence, estop, the router announcement, and leader claims. They live under `{fleet}/_fleet/...` except presence, which is `{fleet}/{robot}/presence`. The watchdog publishes presence on its own Zenoh session, not through the bridge, so a bridge crash does not look like the robot left, and estop still has a path.
 
-| Layer | What it is | Example |
-|-------|------------|---------|
-| **Bus** | Shared Zenoh network: router + everyone connected to it | `rosie router` on the laptop LAN |
-| **Session** | One **process’s** connection to the bus, bound to a robot id and fleet | Firmware on `car1`; `rosie teleop` on the laptop |
-| **Topic** | One named I/O channel under that identity | `pose`, `cmd_vel`, `imu` |
+## What runs where
 
-- The **bus** is infrastructure. It routes keys and payloads; it does not know
-  about sensors or apps.
-- A **Session** is the client handle (`rosie.Session` / `rosie::Session`). It
-  owns that process’s publishers and subscribers. Typical: **one Session per
-  process**, not one per sensor.
-- A **Topic** is an I/O surface. Relative names (`pose`) resolve under the
-  Session’s identity to wire keys such as `lab/car1/pose`. Many topics share
-  one Session.
+| Piece | Where | Needs ROS? |
+|---|---|---|
+| `rosie` CLI, `Session`, `Fleet`, `MobileRobot`, viz, bags | Laptop | No |
+| `zenohd` (`rosie router`) | Laptop, or one machine the fleet can reach | No |
+| `zenoh-bridge-ros2dds` | Robot | Talks to the robot's DDS |
+| `rosie robot watchdog` | Robot | Yes (`rclpy` from the robot's ROS install) |
 
-```text
-bus (zenohd)
- ├── Session: car firmware   (robot=car1, fleet=lab)
- │     pubs: pose, presence, encoders?, imu?, …
- │     subs: cmd_vel, goto, cmd
- └── Session: laptop teleop  (robot=car1, fleet=lab)
-       pubs: cmd_vel
-       subs: (optional) pose
-```
+The watchdog is the only Rosie code that imports `rclpy`. Install it in a venv created with `--system-site-packages` so it sees the distro's ROS libraries. The laptop venv stays ROS-free. That extra is `rosie-framework[robot]`; it adds no pip packages.
 
-Same robot id / topic namespace, **different Sessions**. The car publishes
-`pose`; the laptop publishes `cmd_vel`. The bus delivers between them.
+## Sessions
 
-On the **robot process**, one Session carries all onboard pubs and subs
-(sensors, pose, commands). On the **host**, each tool (`teleop`, `drive`,
-`viz`, a custom script) opens its **own** Session, usually bound to the same
-robot id so relative names resolve into that robot’s namespace.
+A `Session` is a Zenoh client bound to one fleet and one robot. Relative keys get a `{fleet}/{robot}/` prefix, which is the same string the bridge namespace produces. `publish_ros` / `subscribe_ros` take a ROS type name. `query` does not add a prefix: action clients pass the full bridge key.
 
-Topic naming, delivery classes, and the fleet robot contract:
-[Conventions](conventions.md) ([Delivery and validity](conventions.md#delivery-and-validity)).
-Python API: [Writing sessions](host/writing-sessions.md). MCU API / limits:
-[Firmware](robots/firmware.md).
+`mode` is `client` by default (connect to `rosie router`). `peer` and `router` listen as well, for a robot that should keep working when the fleet router is absent. The bridge config from `rosie robot setup` has the same three modes.
 
-## Identity
+## Versions
 
-| Entity | Role |
-|--------|------|
-| **Fleet** | Required shared scope; create with `rosie fleet init` before the router. Fleet-wide keys under `{fleet}/_fleet/…` |
-| **Robot** | Required id; topic boundary for that machine (`{fleet}/{robot}/…`) |
-| **Session** | Process-local Zenoh handle bound to a robot and fleet |
-| **Topic** | Named channel (`pose`, `cmd_vel`, …) — not one Session per sensor |
-
-## Networking (where the bus lives)
-
-### Fleet topology (recommended)
-
-Multi-robot fleets use a **Wi‑Fi AP you control** — typically a dedicated AP,
-or optionally the laptop as AP. Prefer that over home / venue Wi‑Fi. Do **not**
-use a robot SoftAP for more than one robot (see one-robot SoftAP below).
-
-1. Bring up the AP (fixed SSID / password).
-2. Laptop and all robots join that SSID as **stations**.
-3. Host runs `rosie fleet init --fleet <id>` (once), then `rosie router --fleet <id>` listening on `tcp/0.0.0.0:7447`.
-4. Every robot opens a Zenoh **client** to the router host. Linux robots may
-   use `connect: auto` (scout + fleet check). MCU station codegen bakes the
-   LAN IP from `connect: auto`. Host tools on the router host default to
-   `tcp/127.0.0.1:7447` (override with `ROSIE_CONNECT` if remote).
-
-Discovery is brokered through the router. Sessions are client mode; scouting
-only finds the router. Application membership uses `presence` and
-`rosie fleet list`. Details: [Fleet networking](fleet/networking.md).
-
-### One-robot SoftAP (still a fleet)
-
-For a single MCU with no shared AP. The robot still has a fleet id
-(`lab/car1/pose`, not `car1/pose`):
-
-1. `rosie fleet init --fleet lab` (once, before the router).
-2. Robot starts Wi‑Fi SoftAP (`rosie::softAP`).
-3. Host joins that AP (often `192.168.4.2`).
-4. Host runs `rosie router --fleet lab`.
-5. Robot opens a Zenoh client to `tcp/192.168.4.2:7447`.
-
-**One robot ↔ one host only.** Two SoftAP cars need a dedicated AP.
-
-## Messages
-
-Structured topics are UTF-8 JSON, usually with a top-level `stamp`:
-
-```json
-{ "stamp": 123.4, "v": 0.2, "w": 0.0 }
-```
-
-- Host `stamp`: wall-clock seconds.
-- MCU `stamp`: `millis()/1000.0` (monotonic — not wall clock).
-- Plain dicts are first-class; typed `std_msgs` classes are optional.
-- Large blobs (e.g. JPEG) use raw bytes, not JSON.
-
-Catalog: [Messages](messages.md). MCU publisher / JSON buffer caps:
-[Firmware](robots/firmware.md).
-
-## Framework vs robot
-
-| Rosie provides | You provide |
-|----------------|-------------|
-| Session, pub/sub, SoftAP + **wifiStation**, **mcuConnect** | `robot.yaml` pins, ids, credentials, gains |
-| `DiffDriveStack` / `MobileBase`, inventory drivers | Thin `main.cpp`; choose drivers in YAML (or BYO / raw `MobileBase`) |
-| Goto + optional velocity PID (`rosie tune`) | Custom `VelocityController` / `cmd` ops when needed |
-| Fleet identity, manifest wait, topic / bag / drive CLI | Robot ids, manifest roster, mission logic beyond presence |
-
-## Tooling map
-
-The `rosie` CLI talks to the same bus. Host / Linux robots use top-level
-commands; MCU boards use `rosie mcu …`. Common entry points:
-
-| Area | Commands |
-|------|----------|
-| Bus | `setup`, `router`, `doctor` |
-| Drive / inspect | `teleop`, `drive`, `topic`, `viz`, `bag` |
-| Fleet | `fleet …`, `secret apply` |
-| Robot backends | `mcu …`, `run`, `agent …` |
-
-Install and first bring-up: [Getting started](getting-started.md).
-Standing up a robot: [BYOR](robots/byor.md). Mobile stack:
-[Mobile base](robots/mobile-base.md). Drivers: [Drivers](robots/drivers.md).
-Fleet ops: [Management](fleet/management.md).
+The router and the bridge are pinned to Zenoh 1.9.0. They are not wire-compatible with `rmw_zenoh`. A robot that uses `rmw_zenoh` instead of the bridge is a different key layout, described in [Add a robot](robots/adding-a-robot.md). Supported ROS distros for the bridge path are Humble, Jazzy, and Lyrical. The bridge's topic keys do not change between those distros. `rmw_zenoh` type hashes do.

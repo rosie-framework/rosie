@@ -1,20 +1,17 @@
 # Rosie (Python)
 
 ```bash
-pip install -e .                 # host: Session, CLI, router, viz, bags / MCAP export
-pip install -e ".[mcu]"          # + MCU build / flash (PlatformIO)
-pip install -e ".[linux]"        # + Pi/Jetson GPIO / I2C for `rosie run`
-pip install -e ".[camera]"       # + OpenCV for `rosie drive` snap / cam
-# or: pip install -e ".[mcu,camera,linux]"
+pip install -e .          # laptop: Session, CLI, router, viz, bags
+pip install -e ".[robot]" # same packages; on a robot, create the venv with
+                          #   python3 -m venv --system-site-packages
+                          # so the watchdog can import rclpy
+pip install -e ".[camera]"
 
 rosie setup
 rosie fleet init --fleet lab
 rosie router --fleet lab
-rosie doctor
-# MCU boards only (not Pi/Jetson):
-# rosie mcu setup && rosie mcu flash
-# Linux-native base on Pi/Jetson:
-# rosie run --config robot.yaml   # requires platform: linux in robot.yaml
 ```
 
-See [`../docs/getting-started.md`](../docs/getting-started.md).
+On a robot: `rosie robot setup --fleet lab --robot bot1 --profile rosmaster_x3`.
+
+See [Getting started](../docs/getting-started.md).

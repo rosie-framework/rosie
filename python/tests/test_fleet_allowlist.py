@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from rosie.fleet import Fleet
-from rosie.std_msgs import RobotPresence
+from rosie.fleet_msgs import RobotPresence
 
 
 class FakeFleetPresence(unittest.TestCase):

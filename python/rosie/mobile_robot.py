@@ -1,4 +1,4 @@
-"""Host-side MobileBase client: goto, teleop, camera on a Rosie Session."""
+"""Host-side client for a ROS 2 robot described by a profile."""
 
 from __future__ import annotations
 
@@ -13,10 +13,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from rosie import Session, topics
-from rosie.messages import encode_json
-from rosie.session import Qos
-from rosie.std_msgs import Cmd, Goto, Twist
+from rosie.profiles import RobotProfile, TopicBinding, load_profile
+from rosie.ros.action import STATUS_SUCCEEDED, NavigateToPoseClient, nav_status_name
+from rosie.ros.keys import qualify_topic
+from rosie.ros.pose import pose_dict, twist_dict
+from rosie.session import Qos, Session
 from rosie.tools.teleop_twist import run_teleop
 
 
@@ -25,34 +26,16 @@ def _wrap_deg(delta: float) -> float:
     return (float(delta) + 180.0) % 360.0 - 180.0
 
 
-def _msg_cmd(op: str, value: Any = None) -> bytes:
-    if isinstance(value, bool):
-        return encode_json({"op": op, "value": value})
-    if value is None:
-        return Cmd(op=op).to_bytes()
-    return encode_json({"op": op, "value": value})
-
-
-_CMD_QOS = Qos.COMMAND
+def _relative(profile: RobotProfile, topic: str) -> str:
+    return qualify_topic(profile.ros_namespace, topic).lstrip("/")
 
 
 class MobileRobot:
-    """Host-side helper for a MobileBase / DiffDriveStack robot.
+    """Drive one fleet robot through its profile.
 
-    Sibling capability clients (e.g. an arm helper) would wrap ``Session`` the
-    same way — there is no shared robot superclass.
-
-    Navigation (topics only — see docs/robots/mobile-base.md):
-      ``goto`` — publish a planar goal with ``goal_id`` (fire-and-forget)
-      ``pose`` — progress (``navigating``, ``dist``, ``goal_id``)
-      ``nav_result`` — terminal outcome (``succeeded`` / ``canceled``;
-      ``aborted`` is reserved — hosts must tolerate it, robots do not emit it)
-      ``drive_to`` — blocking helper: goto + wait for matching ``nav_result``
-      ``drive_route`` — convenience: sequential ``drive_to`` (not a planner)
-      ``drive`` — relative distance on wheel odometry (host ``cmd_vel`` loop)
-      ``turn`` — relative heading on pose (host ``cmd_vel`` loop)
-
-    Also: teleop, camera, pose, gains. Interactive UX: ``rosie drive``.
+    Pose and velocity are ROS messages on the Zenoh keys the bridge (or
+    rmw_zenoh) uses. ``goto`` / ``drive_to`` call Nav2's NavigateToPose
+    action. ``stop`` sends a zero twist and cancels the active goal.
     """
 
     def __init__(
@@ -62,56 +45,62 @@ class MobileRobot:
         fleet: str | None = None,
         connect: str | None = None,
         name: str = "mobile",
-        config_path: str | Path | None = None,
+        profile: str | RobotProfile = "default_ros2",
+        profile_overrides: dict[str, Any] | None = None,
         secure: bool = False,
+        v_fwd: float = 0.25,
+        v_turn: float = 1.2,
     ) -> None:
-        if config_path:
-            from rosie.robot_config import load_robot_config
-
-            cfg = load_robot_config(config_path)
-            from .connect import is_auto_connect
-
-            robot = robot or cfg.robot
-            fleet = fleet if fleet is not None else cfg.fleet
-            if connect is None and not is_auto_connect(cfg.connect):
-                connect = cfg.connect
-            teleop = (cfg.raw.get("control") or {}).get("teleop") or {}
-            self._v_fwd = float(teleop.get("v_fwd", 0.25))
-            self._v_turn = float(teleop.get("v_turn", 1.2))
-            # Prefer explicit password from robot.yaml when present.
-            user = cfg.zenoh_user
-            password = cfg.fleet_secret
+        if isinstance(profile, RobotProfile):
+            self.profile = profile
         else:
-            self._v_fwd = 0.25
-            self._v_turn = 1.2
-            user = None
-            password = None
-
+            self.profile = load_profile(str(profile), profile_overrides)
         robot = robot or os.environ.get("ROSIE_ROBOT", "robot")
         self.session = Session(
             robot=robot,
             fleet=fleet,
             connect=connect,
             name=name,
-            user=user,
-            password=password,
-            secure=secure and not password,
+            secure=secure,
         )
-        self.robot_id = robot
+        self.robot_id = self.session.robot
+        self._v_fwd = float(v_fwd)
+        self._v_turn = float(v_turn)
         self._pose: dict = {}
-        self._nav_result: dict | None = None
-        self._next_goal_id = 1
         self._lock = threading.Lock()
-        self.session.subscribe_json(topics.POSE, self._on_pose)
-        self.session.subscribe_json(topics.NAV_RESULT, self._on_nav_result)
+        self._goal_id: bytes | None = None
+        self._nav: NavigateToPoseClient | None = None
+        if self.profile.nav_action and self.profile.transport == "bridge":
+            self._nav = NavigateToPoseClient(
+                self.session,
+                fleet=self.session.fleet,
+                robot=self.session.robot,
+                action=self.profile.nav_action,
+                frame_id=self.profile.frame_id,
+                distro=self.profile.distro,
+                transport=self.profile.transport,
+            )
+        pose_key = _relative(self.profile, self.profile.pose.topic)
+        self.session.subscribe_ros(
+            pose_key,
+            self.profile.pose.type,
+            self._on_pose,
+            distro=self.profile.distro,
+        )
+
+    def _command_binding(self) -> TopicBinding:
+        if not self.profile.cmd_vel_gate:
+            return self.profile.cmd_vel
+        topic = self.profile.cmd_vel.topic.rstrip("/") + "_teleop"
+        return TopicBinding(topic, self.profile.cmd_vel.type, self.profile.cmd_vel.type_hash)
 
     def _on_pose(self, msg: dict) -> None:
+        try:
+            parsed = pose_dict(self.profile.pose.type, msg)
+        except (KeyError, TypeError, ValueError):
+            return
         with self._lock:
-            self._pose = msg
-
-    def _on_nav_result(self, msg: dict) -> None:
-        with self._lock:
-            self._nav_result = msg
+            self._pose = parsed
 
     def pose(self) -> dict:
         with self._lock:
@@ -120,21 +109,35 @@ class MobileRobot:
     def wait_for_pose(self, timeout_s: float = 3.0) -> dict | None:
         deadline = time.time() + timeout_s
         while time.time() < deadline:
-            p = self.pose()
-            if p:
-                return p
+            current = self.pose()
+            if current:
+                return current
             time.sleep(0.1)
         return None
 
-    def stop(self) -> None:
-        self.session.publish(topics.CMD, _msg_cmd("stop"), qos=_CMD_QOS)
-
     def _publish_twist(self, v: float, w: float) -> None:
-        self.session.publish_msg(topics.CMD_VEL, Twist(v=float(v), w=float(w)))
+        binding = self._command_binding()
+        self.session.publish_ros(
+            _relative(self.profile, binding.topic),
+            binding.type,
+            twist_dict(binding.type, v, w),
+            distro=self.profile.distro,
+            qos=Qos.STREAM,
+            envelope=True,
+            priority="interactive",
+            ttl_s=1.0,
+        )
 
-    def _halt(self) -> None:
+    def stop(self) -> None:
+        """Zero velocity and cancel an active Nav2 goal."""
         self._publish_twist(0.0, 0.0)
-        self.stop()
+        goal = self._goal_id
+        if goal is not None and self._nav is not None:
+            try:
+                self._nav.cancel(goal)
+            except Exception:
+                pass
+            self._goal_id = None
 
     @staticmethod
     def _heading_deg(pose: dict) -> float:
@@ -143,10 +146,10 @@ class MobileRobot:
         return math.degrees(float(pose.get("theta", 0.0)))
 
     def _require_pose(self, timeout_s: float = 3.0) -> dict:
-        p = self.wait_for_pose(timeout_s)
-        if not p:
+        current = self.wait_for_pose(timeout_s)
+        if not current:
             raise TimeoutError(f"no pose received within {timeout_s}s")
-        return p
+        return current
 
     def drive(
         self,
@@ -156,12 +159,7 @@ class MobileRobot:
         hz: float = 10.0,
         timeout_s: float | None = None,
     ) -> dict:
-        """Drive a signed distance on wheel odometry. Negative ``meters`` reverses.
-
-        Streams ``cmd_vel`` (deadman) and stops when planar displacement from the
-        start pose reaches ``abs(meters)``. Ctrl-C sends ``stop`` and re-raises.
-        Returns the pose at halt.
-        """
+        """Drive a signed distance using pose feedback. Negative reverses."""
         meters = float(meters)
         speed = float(speed)
         if speed <= 0.0:
@@ -169,7 +167,7 @@ class MobileRobot:
         if hz <= 0.0:
             raise ValueError("hz must be > 0")
         if abs(meters) < 1e-9:
-            self._halt()
+            self.stop()
             return self.pose()
 
         start = self._require_pose()
@@ -181,36 +179,36 @@ class MobileRobot:
             timeout_s = max(5.0, target / speed * 2.0 + 2.0)
         period = 1.0 / hz
         deadline = time.monotonic() + float(timeout_s)
-        print(
-            f"  drive {meters:+.3f} m at {speed:.2f} m/s ...  (Ctrl-C to send STOP)"
-        )
+        print(f"  drive {meters:+.3f} m at {speed:.2f} m/s ...  (Ctrl-C to stop)")
         try:
             while True:
                 if time.monotonic() >= deadline:
-                    self._halt()
+                    self.stop()
                     print()
                     raise TimeoutError(
                         f"drive did not reach {target:.3f} m within {timeout_s}s"
                     )
-                p = self.pose()
+                current = self.pose()
                 traveled = math.hypot(
-                    float(p.get("x", sx)) - sx, float(p.get("y", sy)) - sy
+                    float(current.get("x", sx)) - sx,
+                    float(current.get("y", sy)) - sy,
                 )
                 remaining = target - traveled
                 if remaining <= 0.0:
                     break
                 self._publish_twist(v, 0.0)
                 sys.stdout.write(
-                    f"\r  pose:  x={p.get('x', 0):7.3f} m   y={p.get('y', 0):7.3f} m   "
+                    f"\r  pose:  x={current.get('x', 0):7.3f} m   "
+                    f"y={current.get('y', 0):7.3f} m   "
                     f"traveled={traveled:6.3f} m   remaining={remaining:6.3f} m   "
                 )
                 sys.stdout.flush()
                 time.sleep(period)
         except KeyboardInterrupt:
-            self._halt()
+            self.stop()
             print("\n  STOP sent.")
             raise
-        self._halt()
+        self.stop()
         print()
         return self.pose()
 
@@ -222,12 +220,7 @@ class MobileRobot:
         hz: float = 10.0,
         timeout_s: float | None = None,
     ) -> dict:
-        """Turn in place by a signed heading angle (degrees, +left / CCW).
-
-        Streams ``cmd_vel`` yaw (deadman) and stops when accumulated heading
-        change on pose reaches ``abs(degrees)``. Ctrl-C sends ``stop`` and
-        re-raises. Returns the pose at halt.
-        """
+        """Turn in place by a signed heading angle (degrees, +left / CCW)."""
         degrees = float(degrees)
         rate_dps = float(rate_dps)
         if rate_dps <= 0.0:
@@ -235,7 +228,7 @@ class MobileRobot:
         if hz <= 0.0:
             raise ValueError("hz must be > 0")
         if abs(degrees) < 1e-9:
-            self._halt()
+            self.stop()
             return self.pose()
 
         start = self._require_pose()
@@ -248,153 +241,86 @@ class MobileRobot:
         deadline = time.monotonic() + float(timeout_s)
         traveled = 0.0
         print(
-            f"  turn {degrees:+.1f} deg at {rate_dps:.0f} deg/s ...  (Ctrl-C to send STOP)"
+            f"  turn {degrees:+.1f} deg at {rate_dps:.0f} deg/s ...  (Ctrl-C to stop)"
         )
         try:
             while True:
                 if time.monotonic() >= deadline:
-                    self._halt()
+                    self.stop()
                     print()
                     raise TimeoutError(
                         f"turn did not reach {target:.1f} deg within {timeout_s}s"
                     )
-                p = self.pose()
-                h = self._heading_deg(p)
-                traveled += abs(_wrap_deg(h - last_h))
-                last_h = h
+                current = self.pose()
+                heading = self._heading_deg(current)
+                traveled += abs(_wrap_deg(heading - last_h))
+                last_h = heading
                 remaining = target - traveled
                 if remaining <= 0.0:
                     break
                 self._publish_twist(0.0, w)
                 sys.stdout.write(
-                    f"\r  pose:  heading={h:7.1f} deg   "
+                    f"\r  pose:  heading={heading:7.1f} deg   "
                     f"turned={traveled:6.1f} deg   remaining={remaining:6.1f} deg   "
                 )
                 sys.stdout.flush()
                 time.sleep(period)
         except KeyboardInterrupt:
-            self._halt()
+            self.stop()
             print("\n  STOP sent.")
             raise
-        self._halt()
+        self.stop()
         print()
         return self.pose()
 
-    def zero(self) -> None:
-        self.session.publish(topics.CMD, _msg_cmd("zero"), qos=_CMD_QOS)
-
-    def set_heading_source(self, imu: bool | None = None) -> None:
-        if imu is None:
-            self.session.publish(
-                topics.CMD, _msg_cmd("heading_source"), qos=_CMD_QOS
+    def goto(self, x: float, y: float, *, yaw: float = 0.0) -> bytes:
+        """Send a NavigateToPose goal. Returns the 16-byte goal id."""
+        if self._nav is None:
+            raise RuntimeError(
+                f"profile {self.profile.name!r} has no NavigateToPose action"
             )
-        else:
-            self.session.publish(
-                topics.CMD,
-                _msg_cmd("heading_source", bool(imu)),
-                qos=_CMD_QOS,
-            )
-
-    def set_camera_enable(self, enable: bool = True) -> None:
-        self.session.publish(
-            topics.CMD, _msg_cmd("camera_enable", bool(enable)), qos=_CMD_QOS
-        )
-
-    def set_gains(
-        self,
-        *,
-        kp: float | None = None,
-        ki: float | None = None,
-        kd: float | None = None,
-        i_clamp: float | None = None,
-    ) -> None:
-        """Live-update onboard velocity PID gains (partial OK)."""
-        value: dict[str, float] = {}
-        if kp is not None:
-            value["kp"] = float(kp)
-        if ki is not None:
-            value["ki"] = float(ki)
-        if kd is not None:
-            value["kd"] = float(kd)
-        if i_clamp is not None:
-            value["i_clamp"] = float(i_clamp)
-        if not value:
-            raise ValueError("set_gains requires at least one of kp, ki, kd, i_clamp")
-        self.session.publish(
-            topics.CMD, _msg_cmd("set_gains", value), qos=_CMD_QOS
-        )
-
-    def get_gains(self) -> None:
-        """Request gain / control telemetry publish (see topics.CONTROL)."""
-        self.session.publish(topics.CMD, _msg_cmd("get_gains"), qos=_CMD_QOS)
-
-    def goto(self, x: float, y: float, *, goal_id: int | None = None) -> int:
-        """Publish a planar goal (fire-and-forget). Returns ``goal_id``.
-
-        The navigation primitive. Completion is published on ``nav_result``.
-        """
-        if goal_id is None:
-            goal_id = self._next_goal_id
-            self._next_goal_id += 1
-        else:
-            self._next_goal_id = max(self._next_goal_id, int(goal_id) + 1)
-        with self._lock:
-            self._nav_result = None
-        self.session.publish(
-            topics.GOTO,
-            Goto(x=float(x), y=float(y), goal_id=int(goal_id)).to_bytes(),
-            qos=_CMD_QOS,
-        )
-        return int(goal_id)
+        goal_id = self._nav.send_goal(x, y, yaw=yaw)
+        self._goal_id = goal_id
+        return goal_id
 
     def drive_to(
         self,
         x: float,
         y: float,
-        poll_s: float = 0.1,
         *,
         timeout_s: float = 120.0,
+        poll_s: float = 0.2,
     ) -> dict:
-        """Blocking helper: ``goto``, then wait for matching ``nav_result``.
-
-        Prints pose progress. Ctrl-C sends ``stop`` and re-raises.
-        Raises ``TimeoutError`` if no matching ``nav_result`` within
-        ``timeout_s`` (default 120 s).
-        Returns the ``nav_result`` dict (``goal_id``, ``status``, …).
-        """
+        """Blocking helper: send a goal, then wait for its result."""
+        if self._nav is None:
+            raise RuntimeError(
+                f"profile {self.profile.name!r} has no NavigateToPose action"
+            )
         goal_id = self.goto(x, y)
-        print(
-            f"  driving to ({x}, {y}) m goal_id={goal_id} ...  (Ctrl-C to send STOP)"
-        )
+        print(f"  driving to ({x}, {y}) m ...  (Ctrl-C to stop)")
+        holder: dict[str, Any] = {}
+        error: list[BaseException] = []
+
+        def _wait() -> None:
+            try:
+                holder["result"] = self._nav.wait_result(goal_id, timeout_s=timeout_s)
+            except BaseException as exc:  # noqa: BLE001 - surfaced on the caller thread
+                error.append(exc)
+
+        thread = threading.Thread(target=_wait, name="rosie-nav-result", daemon=True)
+        thread.start()
         deadline = time.monotonic() + float(timeout_s)
         try:
-            while True:
-                with self._lock:
-                    result = dict(self._nav_result) if self._nav_result else None
-                if result is not None and int(result.get("goal_id", -1)) == goal_id:
-                    status = result.get("status", "?")
-                    print()
-                    print(
-                        f"  >> nav_result goal_id={goal_id} status={status} "
-                        f"at ({result.get('x', 0):.3f}, {result.get('y', 0):.3f}) m"
-                    )
-                    if status != "succeeded":
-                        raise RuntimeError(
-                            f"navigation {status} for goal_id={goal_id}"
-                        )
-                    return result
+            while thread.is_alive():
                 if time.monotonic() >= deadline:
                     self.stop()
-                    print()
-                    raise TimeoutError(
-                        f"no nav_result for goal_id={goal_id} within {timeout_s}s"
-                    )
-                p = self.pose()
-                if p:
+                    raise TimeoutError(f"no nav result within {timeout_s}s")
+                current = self.pose()
+                if current:
                     sys.stdout.write(
-                        f"\r  pose:  x={p.get('x', 0):7.3f} m   y={p.get('y', 0):7.3f} m   "
-                        f"heading={p.get('heading_deg', 0):7.1f} deg   "
-                        f"remaining={p.get('dist', 0):6.3f} m   mode={p.get('mode', '?')}   "
+                        f"\r  pose:  x={current.get('x', 0):7.3f} m   "
+                        f"y={current.get('y', 0):7.3f} m   "
+                        f"heading={current.get('heading_deg', 0):7.1f} deg   "
                     )
                     sys.stdout.flush()
                 time.sleep(poll_s)
@@ -402,9 +328,19 @@ class MobileRobot:
             self.stop()
             print("\n  STOP sent.")
             raise
+        thread.join(timeout=1.0)
+        if error:
+            raise error[0]
+        result = holder.get("result") or {}
+        status = nav_status_name(int(result.get("status") or 0))
+        print()
+        print(f"  >> nav result status={status}")
+        if status != "succeeded" and int(result.get("status") or 0) != STATUS_SUCCEEDED:
+            raise RuntimeError(f"navigation {status}")
+        return result
 
     def drive_route(self, waypoints: list[tuple[float, float]]) -> None:
-        """Convenience: call ``drive_to`` for each waypoint. Not a path planner."""
+        """Call ``drive_to`` for each waypoint. Not a path planner."""
         total = len(waypoints)
         for i, (x, y) in enumerate(waypoints, start=1):
             print(f"  waypoint {i}/{total}")
@@ -412,17 +348,23 @@ class MobileRobot:
                 self.drive_to(x, y)
             except KeyboardInterrupt:
                 return
-            except RuntimeError as e:
-                print(f"  route stopped: {e}")
+            except RuntimeError as exc:
+                print(f"  route stopped: {exc}")
                 return
         print(f"  route complete ({total} waypoint{'s' if total != 1 else ''}).")
 
-    def teleop(self, v_fwd: float | None = None, v_turn: float | None = None, hz: float = 10.0) -> None:
+    def teleop(
+        self,
+        v_fwd: float | None = None,
+        v_turn: float | None = None,
+        hz: float = 10.0,
+    ) -> None:
         run_teleop(
             self.session,
             v_fwd=v_fwd if v_fwd is not None else self._v_fwd,
             v_turn=v_turn if v_turn is not None else self._v_turn,
             pub_hz=hz,
+            publish=self._publish_twist,
             on_stop=self.stop,
         )
 
@@ -433,20 +375,27 @@ class MobileRobot:
         capture_dir: Path | None = None,
         open_viewer: bool = True,
     ) -> Path:
-        buf = _CameraBuffer()
-        self.set_camera_enable(True)
-        self.session.subscribe_bytes(topics.CAMERA_COMPRESSED, buf.update)
+        if self.profile.camera is None:
+            raise RuntimeError(f"profile {self.profile.name!r} has no camera topic")
+        holder: dict[str, bytes] = {}
+
+        def _on(msg: dict) -> None:
+            data = msg.get("data")
+            if isinstance(data, (bytes, bytearray)) and data:
+                holder["jpeg"] = bytes(data)
+
+        self.session.subscribe_ros(
+            _relative(self.profile, self.profile.camera.topic),
+            self.profile.camera.type,
+            _on,
+            distro=self.profile.distro,
+        )
         deadline = time.time() + timeout_s
-        jpeg = None
-        while time.time() < deadline:
-            jpeg = buf.latest()
-            if jpeg:
-                break
+        while time.time() < deadline and "jpeg" not in holder:
             time.sleep(0.05)
+        jpeg = holder.get("jpeg")
         if not jpeg:
-            raise TimeoutError(
-                f"no JPEG on {topics.CAMERA_COMPRESSED} within {timeout_s}s"
-            )
+            raise TimeoutError(f"no camera frame within {timeout_s}s")
         out_dir = capture_dir or Path.cwd() / "captures"
         out_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -458,6 +407,8 @@ class MobileRobot:
         return out
 
     def camera_live(self, duration_s: float | None = None) -> None:
+        if self.profile.camera is None:
+            raise RuntimeError(f"profile {self.profile.name!r} has no camera topic")
         try:
             import cv2  # type: ignore
             import numpy as np  # type: ignore
@@ -467,15 +418,25 @@ class MobileRobot:
             use_cv = False
             print("  (opencv not installed — printing frame sizes only)")
 
-        buf = _CameraBuffer()
-        self.set_camera_enable(True)
-        self.session.subscribe_bytes(topics.CAMERA_COMPRESSED, buf.update)
+        latest: dict[str, bytes] = {}
+
+        def _on(msg: dict) -> None:
+            data = msg.get("data")
+            if isinstance(data, (bytes, bytearray)) and data:
+                latest["jpeg"] = bytes(data)
+
+        self.session.subscribe_ros(
+            _relative(self.profile, self.profile.camera.topic),
+            self.profile.camera.type,
+            _on,
+            distro=self.profile.distro,
+        )
         print("Live camera (Ctrl-C to stop)...")
         start = time.time()
         last_shown = 0.0
         try:
             while duration_s is None or (time.time() - start) < duration_s:
-                jpeg = buf.latest(max_age_s=2.0)
+                jpeg = latest.get("jpeg")
                 if jpeg and time.time() - last_shown > 0.05:
                     last_shown = time.time()
                     if use_cv:
@@ -505,26 +466,6 @@ class MobileRobot:
         self.close()
 
 
-class _CameraBuffer:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._jpeg: bytes | None = None
-        self._stamp = 0.0
-
-    def update(self, data: bytes) -> None:
-        with self._lock:
-            self._jpeg = data
-            self._stamp = time.time()
-
-    def latest(self, max_age_s: float = 5.0) -> bytes | None:
-        with self._lock:
-            if self._jpeg is None:
-                return None
-            if time.time() - self._stamp > max_age_s:
-                return None
-            return self._jpeg
-
-
 def _open_image(path: Path) -> None:
     path = path.resolve()
     system = platform.system()
@@ -535,5 +476,5 @@ def _open_image(path: Path) -> None:
             os.startfile(str(path))  # type: ignore[attr-defined]
         else:
             subprocess.run(["xdg-open", str(path)], check=False)
-    except OSError as e:
-        print(f"  warning: could not open viewer ({e}); file is at {path}")
+    except OSError as exc:
+        print(f"  warning: could not open viewer ({exc}); file is at {path}")

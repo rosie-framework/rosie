@@ -14,7 +14,7 @@ from .manifest import FleetManifest
 from .messages import decode_json
 from .connect import is_auto_connect, resolve_connect
 from .session import qos_put_kwargs, Qos
-from .std_msgs import Cmd, LeaderClaim, RobotPresence
+from .fleet_msgs import Cmd, LeaderClaim, RobotPresence
 
 
 def _normalize_fleet(fleet: str) -> str:
@@ -142,6 +142,8 @@ class Fleet:
                     robot_id=str(data.get("robot_id") or ""),
                     fleet_id=data.get("fleet_id"),
                     status=str(data.get("status") or ""),
+                    profile=data.get("profile"),
+                    estop=bool(data.get("estop", False)),
                 )
             except Exception:
                 return None

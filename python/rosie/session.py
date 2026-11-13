@@ -84,6 +84,7 @@ def _open_zenoh(
     password: str | None = None,
     fleet: str | None = None,
     secure: bool = False,
+    mode: str = "client",
 ) -> Any:
     """Open a Zenoh session.
 
@@ -99,7 +100,9 @@ def _open_zenoh(
     )
 
     conf = zenoh.Config()
-    apply_zenoh_config_pairs(conf, zenoh_config_pairs(connect))
+    if os.environ.get("ROSIE_ZENOH_SHM", "1") == "0":
+        conf.insert_json5("transport/shared_memory/enabled", "false")
+    apply_zenoh_config_pairs(conf, zenoh_config_pairs(connect, mode))
     if user and password:
         creds = BusCredentials(user=user, password=password)
     elif password is not None:
@@ -158,6 +161,7 @@ class Session:
         user: str | None = None,
         password: str | None = None,
         secure: bool = False,
+        mode: str = "client",
     ):
         self.name = name or "session"
         self.robot = _normalize_robot(
@@ -178,12 +182,14 @@ class Session:
             )
         else:
             self.connect = requested
+        self.mode = mode
         self.session = _open_zenoh(
             self.connect,
             user=user,
             password=password,
             fleet=self.fleet,
             secure=secure,
+            mode=mode,
         )
 
         self._subs: list[Any] = []
@@ -265,10 +271,80 @@ class Session:
             payload = encode_json(with_stamp(payload))
         self.session.put(key, payload, **qos_put_kwargs(qos))
 
+    def publish_ros(
+        self,
+        key: str,
+        type_name: str,
+        value: dict[str, Any],
+        *,
+        distro: str = "jazzy",
+        qos: Qos = Qos.STREAM,
+        envelope: bool = False,
+        priority: str = "interactive",
+        ttl_s: float = 2.0,
+    ) -> None:
+        """Publish a ROS message as CDR. ``key`` is relative to this robot.
+
+        ``envelope=True`` attaches ``id`` / ``expiry`` / ``priority`` beside
+        the payload so a relay can queue the command without decoding it.
+        The payload itself stays CDR, which is what the DDS bridge forwards.
+        """
+        from .ros.codec import encode
+        from .ros.envelope import command_envelope
+
+        raw = encode(type_name, value, distro=distro)
+        kwargs = qos_put_kwargs(qos)
+        if envelope:
+            kwargs["attachment"] = command_envelope(priority=priority, ttl_s=ttl_s)
+        self.session.put(self.resolve_name(key), raw, **kwargs)
+
+    def subscribe_ros(
+        self,
+        key: str,
+        type_name: str,
+        callback: Callable[[dict[str, Any]], None],
+        *,
+        distro: str = "jazzy",
+    ) -> None:
+        """Subscribe and pass a decoded ROS message dict to ``callback``."""
+        from .ros.codec import decode
+
+        def _cb(raw: bytes) -> None:
+            callback(decode(type_name, raw, distro=distro))
+
+        self.subscribe_bytes(key, _cb)
+
+    def query(
+        self,
+        key: str,
+        *,
+        payload: bytes,
+        attachment: bytes | None = None,
+        timeout_s: float = 5.0,
+    ) -> list[bytes]:
+        """Zenoh query on an already-resolved key. Returns reply payloads.
+
+        Action clients pass bridge keys (``lab/bot1/.../_action/send_goal``).
+        Those are not prefixed again.
+        """
+        replies = self.session.get(
+            key,
+            payload=payload,
+            attachment=attachment,
+            timeout=timeout_s,
+        )
+        out: list[bytes] = []
+        for reply in replies:
+            ok = getattr(reply, "ok", None)
+            if ok is None:
+                continue
+            out.append(ok.payload.to_bytes())
+        return out
+
     def publish_msg(
         self, key: str, msg: Any, *, qos: Qos = Qos.STREAM
     ) -> None:
-        """Publish a generated std_msgs dataclass (sets stamp when missing)."""
+        """Publish an object with ``to_bytes()`` (fleet-plane messages)."""
         key = self.resolve_name(key)
         if hasattr(msg, "stamp") and not msg.stamp:
             msg.stamp = stamp_now()

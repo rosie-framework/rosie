@@ -11,14 +11,22 @@ Downloaded by `rosie setup` / `rosie router` from
 https://download.eclipse.org/zenoh/ into ~/.rosie/bin/
 Upstream: https://zenoh.io / https://github.com/eclipse-zenoh/zenoh
 
-PlatformIO Core (optional, rosie-framework[mcu])
--------------------------------------------
-License: Apache-2.0
-Installed via pip when using the firmware extra.
-Upstream: https://platformio.org
+zenoh-bridge-ros2dds
+--------------------
+License: Apache-2.0 OR EPL-2.0
+Downloaded by `rosie robot setup` from
+https://github.com/eclipse-zenoh/zenoh-plugin-ros2dds/releases
+(version 1.9.0, pinned with the router).
+Upstream: https://github.com/eclipse-zenoh/zenoh-plugin-ros2dds
 
 eclipse-zenoh (Python client)
 -----------------------------
 License: Apache-2.0 OR EPL-2.0
 Pip dependency of Rosie.
 Upstream: https://github.com/eclipse-zenoh/zenoh-python
+
+rosbags
+-------
+License: Apache-2.0
+Pure-Python CDR encode and decode.
+Upstream: https://gitlab.com/ternaris/rosbags

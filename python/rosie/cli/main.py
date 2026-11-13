@@ -7,20 +7,16 @@ import sys
 
 from rosie import __version__
 from rosie.cli import (
-    agent,
     bag,
     doctor,
     drive,
-    drivers,
     fleet,
-    mcu,
+    robot,
     router,
-    run,
     secret,
     setup,
     teleop,
     topic,
-    tune,
     viz,
 )
 
@@ -39,16 +35,12 @@ def build_parser() -> argparse.ArgumentParser:
         doctor,
         teleop,
         drive,
-        tune,
-        drivers,
         fleet,
         secret,
         topic,
         bag,
         viz,
-        agent,
-        run,
-        mcu,
+        robot,
     ):
         mod.register(sub)
 
@@ -86,7 +78,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         raise SystemExit(2)
     if args.command == "secret" and not getattr(args, "secret_command", None):
-        print("usage: rosie secret apply [--config robot.yaml] ...", file=sys.stderr)
+        print("usage: rosie secret apply [--config rosie-bridge.json5] ...", file=sys.stderr)
         raise SystemExit(2)
     if args.command == "topic" and not getattr(args, "topic_command", None):
         print("usage: rosie topic {list,echo} ...", file=sys.stderr)
@@ -94,20 +86,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "bag" and not getattr(args, "bag_command", None):
         print("usage: rosie bag {record,play,info,export} ...", file=sys.stderr)
         raise SystemExit(2)
-    if args.command == "agent" and not getattr(args, "agent_command", None):
-        print(
-            "usage: rosie agent {init,run,install,doctor} ...",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-    if args.command == "mcu" and not getattr(args, "mcu_command", None):
-        print(
-            "usage: rosie mcu {setup,link,init,gen-config,build,flash,monitor} ...",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-    if args.command == "drivers" and not getattr(args, "drivers_command", None):
-        print("usage: rosie drivers list [--category ...]", file=sys.stderr)
+    if args.command == "robot" and not getattr(args, "robot_command", None):
+        print("usage: rosie robot {setup,doctor} ...", file=sys.stderr)
         raise SystemExit(2)
 
     raise SystemExit(args.func(args))

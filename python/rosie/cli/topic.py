@@ -22,6 +22,8 @@ def cmd_topic_echo(args: argparse.Namespace) -> int:
         connect=args.connect,
         max_count=args.count,
         raw=args.raw,
+        ros_type=args.type,
+        distro=args.distro,
     )
     return 0
 
@@ -35,6 +37,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     p_tlist.add_argument("--key", default="**", help="selector relative to fleet")
     p_tlist.add_argument("--wait", type=float, default=2.0, help="listen window seconds")
     p_tlist.add_argument("--flat", action="store_true", help="print full keyexprs")
+    p_tlist.add_argument("--profile", default=None, help="label keys with this profile's ROS types")
+    p_tlist.add_argument("--robot", default=None, help="robot id for --profile type labels")
     p_tlist.set_defaults(func=cmd_topic_list)
 
     p_techo = topic_sub.add_parser("echo", help="print live samples for a fleet key")
@@ -46,4 +50,14 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     p_techo.add_argument("--count", type=int, default=None, help="stop after N samples")
     p_techo.add_argument("--raw", action="store_true", help="print repr of bytes")
+    p_techo.add_argument(
+        "--type",
+        default=None,
+        help="ROS type to decode CDR (e.g. nav_msgs/msg/Odometry)",
+    )
+    p_techo.add_argument(
+        "--distro",
+        default="jazzy",
+        help="ROS distro for CDR layout (humble, jazzy, lyrical)",
+    )
     p_techo.set_defaults(func=cmd_topic_echo)

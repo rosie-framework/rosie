@@ -14,7 +14,6 @@ from rosie.auth import (
     credentials_for,
     resolve_secret_plaintext,
     sha256_hex,
-    sync_secret_into_robot_yaml,
     write_router_auth_files,
 )
 from rosie.fleet_home import generate_secret, write_secret_file
@@ -179,21 +178,6 @@ class AuthTests(unittest.TestCase):
             conf = cfg.read_text(encoding="utf-8")
             self.assertIn("usrpwd", conf)
             self.assertIn("dictionary_file", conf)
-
-    def test_sync_secret_into_robot_yaml(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "robot.yaml"
-            path.write_text(
-                "robot: car1\nfleet: lab\nnetwork:\n  mode: station\n  connect: tcp/1.2.3.4:7447\n",
-                encoding="utf-8",
-            )
-            changed = sync_secret_into_robot_yaml(path, password="abc", user="lab")
-            self.assertTrue(changed)
-            text = path.read_text(encoding="utf-8")
-            self.assertIn("fleet_secret: abc", text)
-            self.assertIn("user: lab", text)
-            changed2 = sync_secret_into_robot_yaml(path, password="abc", user="lab")
-            self.assertFalse(changed2)
 
     def test_generate_and_write_secret(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,30 +1,16 @@
-"""Standard relative topic names.
+"""Relative names for the JSON fleet plane.
 
-Pass these to ``Session.publish`` / ``subscribe_*``; the session's robot
-and fleet prefixes them. A leading ``/`` makes a name absolute
-(not prefixed). Fleet-scoped topics use ``Session.publish_fleet`` /
-``resolve_fleet_name`` → ``{fleet}/_fleet/...``.
+Robot data is a ROS topic named by the robot's profile, not one of these
+constants. Pass these to ``Session.publish`` / ``subscribe_*``; the session
+prefixes ``{fleet}/{robot}/``. Fleet-scoped topics use
+``Session.publish_fleet`` → ``{fleet}/_fleet/...``.
 """
 
 from __future__ import annotations
 
-POSE = "pose"
-LOG = "log"
-CMD_VEL = "cmd_vel"
-GOTO = "goto"
-NAV_RESULT = "nav_result"
-CMD = "cmd"
-CAMERA_COMPRESSED = "camera/compressed"
 PRESENCE = "presence"
 ROUTER = "router"
-CONTROL = "control"
-ENCODERS = "encoders"
-IMU = "imu"
-
-
-def range_topic(sensor_id: str) -> str:
-    """Relative topic for a named range sensor: ``range/<id>``."""
-    sid = str(sensor_id).strip()
-    if not sid:
-        raise ValueError("range sensor id must be non-empty")
-    return f"range/{sid}"
+ESTOP = "estop"
+# Reserved so a link emulator can record conditions in the same bag as the robot.
+LINK = "link"
+CAMERA_COMPRESSED = "camera/compressed"

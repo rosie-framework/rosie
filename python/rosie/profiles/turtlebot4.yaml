@@ -1,0 +1,20 @@
+# TurtleBot 4. The Create 3 base runs its own DDS, so this profile stays on
+# the bridge. Switching the robot to rmw_zenoh does not move the base.
+distro: jazzy
+transport: bridge
+cmd_vel:
+  topic: /cmd_vel
+  type: geometry_msgs/msg/Twist
+pose:
+  topic: /odom
+  type: nav_msgs/msg/Odometry
+nav:
+  action: /navigate_to_pose
+  frame_id: map
+link_loss: stop_after
+link_loss_s: 2.0
+bridge:
+  allow:
+    publishers: ["^/odom$", "^/amcl_pose$"]
+    subscribers: ["^/cmd_vel$"]
+    action_servers: ["^/navigate_to_pose$"]

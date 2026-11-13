@@ -194,3 +194,70 @@ def zenohd_version_string(path: Path | None = None) -> str | None:
         return text.splitlines()[-1].strip()
     except Exception:
         return None
+
+
+# zenoh-bridge-ros2dds 1.9.0 standalone zips. Same Zenoh series as zenohd.
+_BRIDGE_VERSION = "1.9.0"
+_BRIDGE_BASE = (
+    "https://github.com/eclipse-zenoh/zenoh-plugin-ros2dds/releases/download/"
+    + _BRIDGE_VERSION
+)
+_BRIDGE_ARTIFACTS: dict[str, tuple[str, str]] = {
+    "aarch64-unknown-linux-gnu": (
+        f"zenoh-plugin-ros2dds-{_BRIDGE_VERSION}-aarch64-unknown-linux-gnu-standalone.zip",
+        "e3eb1fd4459e4b877653419b1c25eaf92418d70fe53ee767eca005f1a19443dc",
+    ),
+    "x86_64-unknown-linux-gnu": (
+        f"zenoh-plugin-ros2dds-{_BRIDGE_VERSION}-x86_64-unknown-linux-gnu-standalone.zip",
+        "91aa0d569fffd57e7ebb1a591b97789891c543b1ff0a1658413ce6cbbba34a9e",
+    ),
+}
+
+
+def bridge_cache_path(triple: str | None = None) -> Path:
+    name = triple or detect_triple()
+    return rosie_home() / "bin" / f"zenoh-bridge-ros2dds-{name}"
+
+
+def download_bridge(*, triple: str | None = None, force: bool = False, quiet: bool = False) -> Path:
+    """Download the pinned ``zenoh-bridge-ros2dds`` for ``triple`` (default: this host)."""
+    triple = triple or detect_triple()
+    if triple not in _BRIDGE_ARTIFACTS:
+        raise RuntimeError(
+            f"No zenoh-bridge-ros2dds build for {triple!r}. "
+            "Supported: " + ", ".join(sorted(_BRIDGE_ARTIFACTS))
+        )
+    dest = bridge_cache_path(triple)
+    if dest.is_file() and not force:
+        return dest
+    filename, expected_sha = _BRIDGE_ARTIFACTS[triple]
+    url = f"{_BRIDGE_BASE}/{filename}"
+    if not quiet:
+        print(f"Downloading zenoh-bridge-ros2dds {_BRIDGE_VERSION} ({triple})…")
+        print(f"  {url}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="rosie-bridge-") as tmp:
+        zip_path = Path(tmp) / filename
+        try:
+            urllib.request.urlretrieve(url, zip_path)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to download {url}: {exc}") from exc
+        actual = _sha256_file(zip_path)
+        if actual != expected_sha:
+            raise RuntimeError(
+                f"Checksum mismatch for {filename}:\n  expected {expected_sha}\n  got      {actual}"
+            )
+        with zipfile.ZipFile(zip_path) as zf:
+            names = [n for n in zf.namelist() if Path(n).name == "zenoh-bridge-ros2dds"]
+            if not names:
+                raise RuntimeError(f"zenoh-bridge-ros2dds not found in {filename}")
+            tmp_bin = Path(tmp) / "zenoh-bridge-ros2dds"
+            with zf.open(names[0]) as src, tmp_bin.open("wb") as out:
+                shutil.copyfileobj(src, out)
+        tmp_bin.chmod(tmp_bin.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        if dest.exists():
+            dest.unlink()
+        shutil.move(str(tmp_bin), str(dest))
+    if not quiet:
+        print(f"Installed zenoh-bridge-ros2dds → {dest}")
+    return dest

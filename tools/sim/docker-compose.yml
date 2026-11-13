@@ -1,0 +1,44 @@
+# Headless wire harness. One image tag selects Humble, Jazzy, or Lyrical:
+#   ROS_IMAGE=ros:humble docker compose -f tools/sim/docker-compose.yml up
+# DDS stays in the shared network namespace. Zenoh leaves via the bridge
+# toward the laptop router at host.docker.internal:7447.
+# Start that router first: rosie router --fleet lab
+
+services:
+  bridge:
+    image: ${ROS_IMAGE:-ros:humble}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ROS_DISTRO: ${ROS_DISTRO:-humble}
+    volumes:
+      - ./fake_robot.py:/work/fake_robot.py:ro
+      - ./bridge.json5:/work/bridge.json5:ro
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        apt-get update
+        apt-get install -y --no-install-recommends curl unzip ca-certificates
+        curl -fsSL -o /tmp/bridge.zip \
+          "https://github.com/eclipse-zenoh/zenoh-plugin-ros2dds/releases/download/1.9.0/zenoh-plugin-ros2dds-1.9.0-$$(uname -m | sed 's/arm64/aarch64/;s/amd64/x86_64/')-unknown-linux-gnu-standalone.zip"
+        unzip -o /tmp/bridge.zip -d /tmp/bridge
+        exec /tmp/bridge/zenoh-bridge-ros2dds -c /work/bridge.json5
+
+  robot:
+    image: ${ROS_IMAGE:-ros:humble}
+    network_mode: "service:bridge"
+    environment:
+      ROS_DISTRO: ${ROS_DISTRO:-humble}
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        apt-get update
+        apt-get install -y --no-install-recommends ros-$${ROS_DISTRO}-nav2-msgs || true
+        source /opt/ros/$${ROS_DISTRO}/setup.bash
+        exec python3 /work/fake_robot.py
+    volumes:
+      - ./fake_robot.py:/work/fake_robot.py:ro

@@ -239,16 +239,30 @@ def cmd_fleet_topics(args: argparse.Namespace) -> int:
             f"(listened {args.wait}s; publishers must be active)."
         )
         return 0
+    type_map: dict[str, str] = {}
+    profile_name = getattr(args, "profile", None)
+    robot_id = getattr(args, "robot", None)
+    if profile_name and robot_id:
+        from rosie.profiles import load_profile
+
+        type_map = load_profile(profile_name).type_map(kw["fleet"], robot_id)
     if args.flat:
         for key in topic_map.flat():
-            print(key)
+            suffix = f"  {type_map[key]}" if key in type_map else ""
+            print(f"{key}{suffix}")
         return 0
     print(f"Fleet {kw['fleet']}:")
     for robot, rels in topic_map.by_robot.items():
         print(f"  {robot}/")
         for rel in rels:
             label = rel if rel else "(root)"
-            print(f"    {label}")
+            full = f"{kw['fleet']}/{robot}/{rel}" if rel else f"{kw['fleet']}/{robot}"
+            suffix = f"  {type_map[full]}" if full in type_map else ""
+            print(f"    {label}{suffix}")
+    if type_map:
+        print("Profile types:")
+        for key, ros_type in type_map.items():
+            print(f"  {key}  {ros_type}")
     return 0
 
 
@@ -276,11 +290,11 @@ def _print_init_banner(
         print("Next steps:")
         print(f"  1. Enroll robots:  rosie fleet add --fleet {fleet_id} --robot <id>")
         print(
-            f"                     (or: rosie fleet add --fleet {fleet_id} --from robot.yaml)"
+            f"                     (or: rosie fleet add --fleet {fleet_id} --from <config.yaml>)"
         )
-        print("  2. Share the fleet secret with anyone who will build/flash a robot")
+        print("  2. Share the fleet secret with anyone who will join a robot")
         print(f"     (they run: rosie fleet secret --fleet {fleet_id} --set)")
-        print("  3. On each robot: set fleet: <id>, then `rosie secret apply`")
+        print("  3. On each robot: rosie robot setup ... --secure")
         print(f"  4. Start secure bus:  rosie router --fleet {fleet_id} --secure")
         print(f"  5. Wait for the team: rosie fleet wait --fleet {fleet_id} --secure")
     else:
@@ -387,11 +401,19 @@ def cmd_fleet_add(args: argparse.Namespace) -> int:
     elif args.robot:
         rid = args.robot
     else:
-        print("error: provide --robot <id> or --from robot.yaml", file=sys.stderr)
+        print("error: provide --robot <id> or --from <config.yaml>", file=sys.stderr)
         return 2
 
     try:
-        updated = add_robot(manifest, RobotSpec(id=rid, kind=kind, status=args.status))
+        updated = add_robot(
+            manifest,
+            RobotSpec(
+                id=rid,
+                kind=kind,
+                status=args.status,
+                profile=getattr(args, "profile", None),
+            ),
+        )
         path = save_manifest(updated, args.manifest or manifest.path)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -462,7 +484,7 @@ def cmd_fleet_secret(args: argparse.Namespace) -> int:
         print(f"Rotated secret for fleet {fleet_id!r}")
         print(f"  secret file: {secret_path}")
         print()
-        print("New fleet secret (re-share out-of-band; rebuild/flash every robot):")
+        print("New fleet secret (re-share out-of-band; set it on every robot and re-run `rosie robot setup --secure`):")
         print(f"  {secret}")
         return 0
 
@@ -517,9 +539,10 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--from",
         dest="from_config",
         default=None,
-        help="robot.yaml / agent.yaml to read robot id (and kind) from",
+        help="yaml with a robot: field",
     )
     p_add.add_argument("--kind", default=None, help="optional device kind")
+    p_add.add_argument("--profile", default=None, help="robot profile name")
     p_add.add_argument("--status", default=None, help="optional required presence status")
     p_add.set_defaults(func=cmd_fleet_add)
 
@@ -606,6 +629,8 @@ def register(sub: argparse._SubParsersAction) -> None:
         action="store_true",
         help="in --secure mode: include topics from robots not on the allowlist",
     )
+    p_ftopics.add_argument("--profile", default=None, help="label keys with this profile's ROS types")
+    p_ftopics.add_argument("--robot", default=None, help="robot id for --profile type labels")
     p_ftopics.set_defaults(func=cmd_fleet_topics)
 
     p_festop = fleet_sub.add_parser("estop", help="publish fleet emergency stop")

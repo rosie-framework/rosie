@@ -219,6 +219,7 @@ def record(
     connect: str | None = None,
     duration: float | None = None,
     on_sample: Callable[[str, bytes], None] | None = None,
+    type_map: dict[str, str] | None = None,
 ) -> int:
     """Record samples under a fleet until KeyboardInterrupt or ``duration``.
 
@@ -230,7 +231,10 @@ def record(
     stop_at = time.time() + float(duration) if duration is not None else None
 
     with Fleet(fleet, connect=connect) as f, _open_bag_write(out_path) as fh:
-        fh.write(json.dumps({"rosiebag": _MAGIC, "fleet": f.fleet, "selector": selector}) + "\n")
+        header = {"rosiebag": _MAGIC, "fleet": f.fleet, "selector": selector}
+        if type_map:
+            header["types"] = dict(type_map)
+        fh.write(json.dumps(header) + "\n")
         fh.flush()
         key = f.resolve_key(selector)
 
@@ -426,6 +430,20 @@ def export_mcap(
             it, start=start, end=end, key=key, fleet=fleet_id
         ):
             topic = rec.key
+            ros_type = (header.get("types") or {}).get(topic)
+            if topic not in channels and ros_type:
+                from .ros.schemas import schema_bytes as ros_schema_bytes
+
+                schema_id = writer.register_schema(
+                    name=ros_type,
+                    encoding="ros2msg",
+                    data=ros_schema_bytes(ros_type),
+                )
+                channels[topic] = writer.register_channel(
+                    topic=topic,
+                    message_encoding="cdr",
+                    schema_id=schema_id,
+                )
             if topic not in channels:
                 if rec.encoding == "text":
                     if schema_json is None:
@@ -490,6 +508,8 @@ def echo_stream(
     max_count: int | None = None,
     raw: bool = False,
     out: TextIO | None = None,
+    ros_type: str | None = None,
+    distro: str = "jazzy",
 ) -> int:
     """Subscribe and print samples until KeyboardInterrupt or max_count."""
     out = out or sys.stdout
@@ -506,6 +526,14 @@ def echo_stream(
                 return
             if raw:
                 out.write(f"[{k}] {raw_bytes!r}\n")
+            elif ros_type and raw_bytes[:1:] != b"{":
+                try:
+                    from .ros.codec import decode
+
+                    decoded = decode(ros_type, raw_bytes, distro=distro)
+                    out.write(f"[{k}] {json.dumps(decoded)}\n")
+                except Exception:
+                    out.write(f"[{k}] <{len(raw_bytes)} bytes {ros_type}>\n")
             else:
                 try:
                     text = raw_bytes.decode("utf-8")

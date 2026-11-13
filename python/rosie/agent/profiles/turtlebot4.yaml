@@ -1,6 +1,0 @@
-# TurtleBot4 (ROS 2) topic defaults.
-# Create 3 uses /cmd_vel; odometry is commonly /odom (or /platform/odom).
-cmd_vel: /cmd_vel
-odom: /odom
-navigate_to_pose: /navigate_to_pose
-frame_id: map

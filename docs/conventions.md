@@ -1,205 +1,57 @@
-# Conventions
+# Fleet contract
 
-Shared contracts for Rosie. Robots choose a **robot id** and a **fleet** and
-join a shared network (dedicated AP, or SoftAP for a one-robot fleet); they
-should follow these topic names and units so laptop tools and other robots
-interoperate.
+A robot that joins a Rosie fleet is a Linux computer running ROS 2. It has to honour the following. Profiles declare how each item is named on that robot.
 
-See also [Messages](messages.md) and [Bring Your Own Robot](robots/byor.md).
+## Required
 
-## Identity
+| Item | What the robot does |
+|---|---|
+| Presence | Something on the robot publishes `{fleet}/{robot}/presence` about once a second. The watchdog does this. The JSON includes `robot_id`, `fleet_id`, `status`, `profile`, and `estop`. |
+| Pose | One of `nav_msgs/msg/Odometry` or `geometry_msgs/msg/PoseWithCovarianceStamped`, on the topic the profile names. `/odom` is the default. Use `/amcl_pose` when you want the map frame and that topic exists. Rosie does not compose TF on the laptop. |
+| Velocity | `geometry_msgs/msg/Twist` or `TwistStamped` on the profile's command topic. Humble profiles use `Twist`. `default_ros2` (Jazzy and Lyrical) uses `TwistStamped`. |
+| Estop | The robot stops, and cancels navigation, when `{fleet}/_fleet/estop` carries `{"op":"estop"}`. The watchdog latches that until it is cleared. |
 
-| Entity | Role |
-|--------|------|
-| **Robot** | Required id; topic boundary for that machine |
-| **Fleet** | Required shared scope; create with `rosie fleet init` before the router |
-| **Session** | Process-local Zenoh handle bound to a robot and fleet |
-| **Topic** | Actual I/O (`pose`, `cmd_vel`, …)—not one Session per sensor |
+## Optional
 
-Mental model (bus vs Session vs Topic, host vs robot Sessions):
-[Architecture](architecture.md#bus-session-topic).
+| Item | Profile field |
+|---|---|
+| `NavigateToPose` | `nav.action`, `nav.frame_id` |
+| Camera | `camera.topic`, type `sensor_msgs/msg/CompressedImage` |
 
-## Topic naming
+## Keys
 
-Zenoh key expressions are `/`-joined paths (no leading slash on the wire):
+Bridge namespace is `/{fleet}/{robot}`. Topic `/cmd_vel` becomes `lab/bot1/cmd_vel`. A robot that already uses a ROS namespace puts that in `ros_namespace`, and the key gains another segment: `lab/bot1/yahboom/cmd_vel`.
 
-| Scope | Pattern | Example |
-|-------|---------|---------|
-| Robot in a fleet | `{fleet}/{robot}/{name}` | `lab/car1/cmd_vel` |
-| Fleet-wide | `{fleet}/_fleet/{name}` | `lab/_fleet/estop` |
-| Absolute / global | strip leading `/` | `/global/estop` → `global/estop` |
+`rmw_zenoh` has no place to insert a fleet namespace. For that transport the fleet identity is part of the ROS topic name: `0/lab/bot1/cmd_vel/<dds type>/<hash>`. Humble's hash segment is `TypeHashNotSupported`. Jazzy and Lyrical use `RIHS01_...`.
 
-The segment `_fleet` is **reserved** — do not use it as a robot id.
+Action goals, results, cancels, and feedback use `<action>/_action/...` under the same namespace. The goal id is inside the CDR payload. Service and action queries carry a CycloneDDS request-header attachment (`rqh`, 8-byte client id, 8-byte sequence, endian byte).
 
-### Resolution
+## Command envelope
 
-`Session(robot=..., fleet=...)` prefixes **relative** names. A leading `/` marks
-an **absolute** name. Fleet-scoped helpers use `{fleet}/_fleet/...`.
+Every laptop command that should survive a relay carries an envelope **beside** the payload, as a Zenoh attachment. The CDR bytes stay a normal ROS message, because the bridge forwards them unchanged. The attachment is JSON:
 
-| Input | `robot="car1", fleet="lab"` |
-|-------|------------------------------|
-| `"cmd_vel"` | `lab/car1/cmd_vel` |
-| `topics.POSE` | `lab/car1/pose` |
-| `"/global/estop"` | `global/estop` |
-| `resolve_fleet_name("estop")` | `lab/_fleet/estop` |
-
-```python
-from rosie import Session, topics
-
-session = Session(robot="car1", fleet="lab", name="teleop")
-session.publish_msg(topics.CMD_VEL, ...)   # → lab/car1/cmd_vel
-session.publish("/global/estop", {...})    # → global/estop
+```json
+{"id":"<hex>","expiry":1710000000.0,"priority":"interactive"}
 ```
 
-Firmware uses the same rules on `rosie::Session(ROBOT_ID, FLEET_ID)`.
+`expiry` is a wall-clock Unix time. A store-and-forward relay can drop a stale command or reorder by `priority` without decoding CDR. `MobileRobot` and `rosie teleop` set `priority` to `interactive` and a one-second TTL on velocity.
 
-### Standard relative names
+## Link loss and priority
 
-Constants in `rosie.topics`:
+The watchdog's link-loss policy is `continue`, `stop`, or `stop_after`, with `link_loss_s`. It is a field of the profile, so another program on the robot can change it by changing that config. Rate limits for the bridge (`bridge.rates`) live in the same profile.
 
-| Constant | Relative name | Typical direction | Payload |
-|----------|---------------|-------------------|---------|
-| `POSE` | `pose` | robot → host | JSON `Pose2D` (+ MobileBase extras below) |
-| `LOG` | `log` | robot → host | JSON `Log` |
-| `CMD_VEL` | `cmd_vel` | host → robot | JSON `Twist` |
-| `GOTO` | `goto` | host → robot | JSON `Goto` (`x`,`y`,`goal_id?`) |
-| `NAV_RESULT` | `nav_result` | robot → host | JSON `NavResult` (goto terminal outcome) |
-| `CMD` | `cmd` | host → robot | JSON `Cmd` (`stop`, `zero`, `set_gains`, …) |
-| `CONTROL` | `control` | robot → host | velocity gains + wheel vel telemetry |
-| `ENCODERS` | `encoders` | robot → host | JSON `EncoderTicks` (opt-in `encoders.pub_hz`) |
-| `IMU` | `imu` | robot → host | JSON `Imu` 6-axis (opt-in `imu.pub_hz`) |
-| — | `range/<id>` | robot → host | JSON `Range` ToF (opt-in `range.sensors`) |
-| `PRESENCE` | `presence` | robot → host | JSON `RobotPresence` |
-| `CAMERA_COMPRESSED` | `camera/compressed` | robot → host | raw bytes (e.g. JPEG) |
+`{fleet}/{robot}/link` is reserved for a link emulator to record loss and delay into a bag next to the robot data. Rosie does not publish it unless you do.
 
-Custom relative names: pass any string (`"sensors/imu"`) or an absolute `"/..."`.
+## Modes
 
-### Fleet robot contract
+`Session` and the bridge config accept `client` (the default), `peer`, and `router`. Presence and estop use the watchdog's session. `Fleet` membership comes from presence, not from the router announcement. A robot can be seen when it is a peer and the laptop is too, if they can connect to each other.
 
-A robot is a first-class fleet member if it honors this contract — regardless of
-whether it runs Rosie **natively** (MCU firmware / Linux `rosie run`) or via
-a **bridge** (`rosie agent` in front of ROS 2). Laptop tools (`teleop`,
-`viz`, `bag`, `fleet`, `MobileRobot`) judge native and bridged robots the same
-way. See [Bridges](robots/bridges.md) for native-vs-bridge guidance and `rosie agent`.
+## Fleet plane keys
 
-| Level | Topic(s) | Requirement |
-|-------|----------|-------------|
-| **MUST** | `presence` | Publish ~1 Hz so hosts can discover the robot |
-| **MUST** | `pose` | Publish `x`, `y`, `theta` (meters / radians) for viz, follow, logging |
-| **MUST** | `cmd_vel` | Accept `Twist` (`v`, `w`) for teleop / manual control |
-| **SHOULD** | `goto` + `nav_result` | Accept a planar goal and report a terminal outcome (enables `drive_to` / `rosie drive`) |
-| **MAY** | `camera/compressed` | Publish JPEG bytes for the viz camera panel |
-| **MAY** | `encoders`, `imu` | Raw ticks / 6-axis IMU telemetry (`encoders.pub_hz` / `imu.pub_hz`) |
-| **MAY** | `range/<id>` | ToF / proximity `Range` telemetry (`range.sensors`) |
-| **MAY** | `log`, `cmd`, `control` | Structured logs, custom ops, velocity-gain telemetry |
-
-All keys resolve under `{fleet}/{robot}/…`. Extra JSON fields are allowed as long
-as the standard fields remain present. A bridge simply maps these to/from the
-robot's own topics (e.g. ROS `/cmd_vel`, `/odom`).
-
-### Environment variables
-
-| Variable | Meaning |
-|----------|---------|
-| `ROSIE_CONNECT` | Host Zenoh endpoint (default `tcp/127.0.0.1:7447`). Override for a remote router. |
-| `ROSIE_ROBOT` | Default Session robot id |
-| `ROSIE_FLEET` | Default Session / CLI fleet id (required unless passed explicitly) |
-| `ROSIE_PARAM_<NAME>` | Override a local parameter (`declare_parameter`) |
-| `ROSIE_FIRMWARE` | Override path to the PlatformIO firmware library |
-| `ROSIE_HOME` | Cache root (default `~/.rosie`) for zenohd / pio_libs |
-
-## Units and frames
-
-| Quantity | Unit / convention |
-|----------|-------------------|
-| Linear speed `v` | m/s; + forward, − reverse |
-| Yaw rate `w` | rad/s; + left / CCW, − right / CW |
-| Position `x`, `y` | meters |
-| Yaw `theta` | radians; convention is robot-defined (often +CCW from +x) |
-
-There is **no TF tree** and **no `frame_id`**. Pose and goto share whatever frame
-the robot defines (document it in the robot README). Onboard `cmd_vel` / `goto`
-paths: [Mobile base → Motion on the robot](robots/mobile-base.md#motion-on-the-robot).
-Host helpers (`drive_to`, `drive`, `turn`): [MobileRobot](host/mobile-robot.md).
-
-## Binary vs JSON topics
-
-- Structured messages: UTF-8 JSON with a top-level `stamp` ([architecture](architecture.md)).
-- Compressed images and similar: **raw bytes**, not JSON.
-- Robots may add **extra JSON fields** on standard topics as long as the std
-  fields remain present.
-
-**MobileBase** pose extras (progress while navigating):
-
-| Extra field | Meaning |
-|-------------|---------|
-| `heading_deg` | yaw in degrees (convenience) |
-| `dist` | distance to current goto target (m) |
-| `navigating` | bool — AUTO goto in progress |
-| `goal_id` | active goto attempt id (while `navigating`) |
-| `mode` | `"idle"` / `"manual"` / `"auto"` |
-| `imu_ok` / `imu_heading` | optional IMU status |
-
-Terminal outcome is **`nav_result`**, not an edge on `navigating`. See
-[Mobile base → Motion on the robot](robots/mobile-base.md#motion-on-the-robot).
-
-Robot description for MCU bring-up is **`robot.yaml`** (not URDF) — see
-[Mobile base](robots/mobile-base.md).
-
-## Delivery and validity
-
-Rosie uses a small fixed set of **delivery classes** (not configurable ROS-style
-QoS profiles). Publishers pick a class; Zenoh priority / congestion control
-follow from that choice.
-
-| Class | Typical topics | Host (Python) | MCU (zenoh-pico) |
-|-------|----------------|---------------|------------------|
-| **STREAM** (default) | `pose`, `control`, `presence`, `encoders`, `imu`, `range/<id>`, `log` | DROP, `DATA` | DROP, `DATA` |
-| **COMMAND** | `cmd`, `goto`, `nav_result` | BLOCK, `INTERACTIVE_HIGH`, express | DROP, `INTERACTIVE_HIGH`, express |
-| **CRITICAL** | `{fleet}/_fleet/estop` | BLOCK, `REAL_TIME`, express | — (published from host) |
-| **BULK** | `camera/compressed` | DROP, `DATA_LOW` | DROP, `DATA_LOW` |
-
-Host **COMMAND** / **CRITICAL** use `BLOCK` so one-shot commands are not dropped
-under congestion. The MCU never blocks a put from `tick()` (that would stall
-actuation); it raises priority instead so drops are less likely under load.
-Demoting camera to **BULK** keeps large frames out of the same priority queue
-as commands.
-
-```python
-from rosie import Session, Qos, topics
-
-session.publish(topics.CMD, {"op": "stop"}, qos=Qos.COMMAND)
-```
-
-**Command precedence (MobileBase / `rosie run`):** callbacks latch requests with
-MCU-local arrival stamps. `tick()` applies them by arrival order — a `cmd_vel`
-older than the latest `stop` / `zero` does not resurrect motion. `stop` stays in
-effect until a strictly newer `cmd_vel` arrives.
-
-**Streams:** the next sample replaces the previous; `cmd_vel` also has a teleop
-deadman (`control.teleop.timeout_ms`). **Goto:** while navigating, an explicit
-`goal_id` equal to the active id is ignored (duplicate); a lower id is ignored
-as stale; a higher id preempts. When idle, any `goto` is accepted. Native
-robots emit `nav_result` `succeeded` / `canceled`; bridged Nav2 agents may also
-emit `aborted`.
-
-See [Mobile base → Control loop timing](robots/mobile-base.md#control-loop-timing).
-
-## Multi-robot / fleet
-
-- Networking: **dedicated AP** + all robots/hosts as Wi‑Fi stations + one
-  `rosie router` — see [Fleet networking](fleet/networking.md). SoftAP is
-  a one-robot fleet topology, not a no-fleet mode.
-- Membership: [Fleet management](fleet/management.md)
-  (`rosie fleet init` / `add`, `router --fleet`). Open vs secure:
-  [Security](fleet/security.md) (`--secure` for usrpwd + allowlist).
-- Publish `presence` (~1 Hz) so hosts can discover live robots.
-- Host: `rosie fleet list|wait|topics`, `rosie topic list|echo`, `rosie bag …`,
-  or `from rosie import Fleet, load_manifest`.
-- Host sessions default to the local router (`tcp/127.0.0.1:7447`). Set
-  `ROSIE_CONNECT` only when the router is on another machine. Robots use
-  `connect: auto` or an explicit locator — see
-  [How robots find the router](fleet/networking.md#how-robots-find-the-router).
-- Fleet-wide signals: `estop`, `coord/leader`, `router` under `{fleet}/_fleet/...`.
-- Prefer `std_msgs` for cross-robot contracts; use plain JSON or custom keys
-  when a robot needs something outside that set.
+| Key | Payload |
+|---|---|
+| `{fleet}/{robot}/presence` | `RobotPresence` JSON |
+| `{fleet}/_fleet/estop` | `{"op":"estop"}` |
+| `{fleet}/_fleet/router` | Router announcement (discovery) |
+| `{fleet}/_fleet/coord/leader` | `LeaderClaim` JSON |
+| `{fleet}/{robot}/link` | Reserved for link conditions |

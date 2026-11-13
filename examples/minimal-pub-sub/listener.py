@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Minimal Rosie listener — subscribe demo/cmd_vel."""
+"""Subscribe to the JSON note from talker.py."""
 
 from __future__ import annotations
 
-from rosie import Session, topics
+from rosie import Session
 
 
 def main() -> None:
     with Session(robot="demo", fleet="lab", name="listener") as session:
+
         def on_msg(msg: dict) -> None:
             print(f"  got {msg}")
 
-        session.subscribe_json(topics.CMD_VEL, on_msg)
-        print(f"Listening on {session.resolve_name(topics.CMD_VEL)} (Ctrl-C to stop)")
+        session.subscribe_json("notes", on_msg)
+        print(f"Listening on {session.resolve_name('notes')} (Ctrl-C to stop)")
         session.spin()
 
 

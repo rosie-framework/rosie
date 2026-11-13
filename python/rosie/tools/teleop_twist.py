@@ -1,19 +1,4 @@
-"""Generic keyboard teleop → publishes ``std_msgs/Twist`` on ``cmd_vel``.
-
-This is the reusable *mechanism* (raw-terminal key loop, fixed-rate publish,
-deadman zero on stop/exit). Robot-specific *policy* — speeds, key mapping,
-robot/fleet identity, and any extra deadman command — is supplied by the caller.
-
-Example (robot wrapper)::
-
-    from rosie import Session, topics
-    from rosie.tools.teleop_twist import run_teleop
-
-    with Session(robot="car1", fleet="lab", name="teleop") as session:
-        run_teleop(session, v_fwd=0.25, v_turn=1.2,
-                   on_stop=lambda: session.publish(
-                       topics.CMD, b'{"op":"stop"}', qos=Qos.COMMAND))
-"""
+"""Keyboard teleop. Publishes a ROS twist on the profile's velocity topic."""
 
 from __future__ import annotations
 
@@ -24,9 +9,10 @@ import time
 import tty
 from collections.abc import Callable
 
-from .. import topics
+from ..profiles import RobotProfile, load_profile
+from ..ros.keys import qualify_topic
+from ..ros.pose import twist_dict
 from ..session import Qos, Session
-from ..std_msgs import Twist
 
 
 def default_keymap(v_fwd: float, v_turn: float) -> dict[str, tuple[float, float]]:
@@ -52,29 +38,37 @@ def run_teleop(
     stop_keys: str = " x",
     quit_keys: str = "q",
     on_stop: Callable[[], None] | None = None,
+    publish: Callable[[float, float], None] | None = None,
+    profile: str | RobotProfile | None = None,
     verbose: bool = True,
 ) -> None:
     """Run a blocking keyboard teleop loop until a quit key is pressed.
 
-    Publishes ``Twist(v, w)`` on relative ``cmd_vel`` (resolved via the
-    session's robot/fleet) at ``pub_hz`` while a motion key is active, and a
-    zero ``Twist`` on stop/exit (deadman).
-
-    Pass an existing ``session`` to reuse a connection (its identity wins);
-    otherwise a temporary Session is opened and closed here. ``on_stop`` runs
-    when a stop key is pressed and once on exit, for robot-specific deadman
-    policy.
+    ``publish(v, w)`` overrides how twists are sent. Otherwise the profile's
+    velocity topic is published as CDR. A zero twist is sent on stop and exit.
     """
     owns_session = session is None
     if session is None:
         session = Session(robot=robot, fleet=fleet, name="teleop", secure=secure)
-    topic = topics.CMD_VEL
+    prof = profile if isinstance(profile, RobotProfile) else load_profile(profile or "default_ros2")
+    topic = qualify_topic(prof.ros_namespace, prof.cmd_vel.topic).lstrip("/")
     resolved = session.resolve_name(topic)
     if keymap is None:
         keymap = default_keymap(v_fwd, v_turn)
 
     def publish_twist(v: float, w: float) -> None:
-        session.publish_msg(topic, Twist(v=v, w=w))
+        if publish is not None:
+            publish(v, w)
+            return
+        session.publish_ros(
+            topic,
+            prof.cmd_vel.type,
+            twist_dict(prof.cmd_vel.type, v, w),
+            distro=prof.distro,
+            qos=Qos.STREAM,
+            envelope=True,
+            ttl_s=1.0,
+        )
 
     def stop() -> None:
         publish_twist(0.0, 0.0)

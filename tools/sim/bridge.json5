@@ -1,0 +1,15 @@
+{
+  "mode": "client",
+  "connect": {"endpoints": ["tcp/host.docker.internal:7447"]},
+  "plugins": {
+    "ros2dds": {
+      "namespace": "/lab/bot1",
+      "nodename": "rosie_bot1",
+      "allow": {
+        "publishers": ["^/odom$", "^/amcl_pose$", "^/camera/image_raw/compressed$", "^.*/_action/feedback$", "^.*/_action/status$"],
+        "subscribers": ["^/cmd_vel$"],
+        "action_servers": ["^/navigate_to_pose$"]
+      }
+    }
+  }
+}

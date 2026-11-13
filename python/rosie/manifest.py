@@ -18,6 +18,8 @@ class RobotSpec:
     id: str
     kind: str | None = None
     status: str | None = None
+    profile: str | None = None
+    overrides: dict[str, Any] = field(default_factory=dict)
     params: dict[str, Any] = field(default_factory=dict)
 
 
@@ -51,6 +53,12 @@ class FleetManifest:
     def allowed_ids(self) -> set[str]:
         return set(self.robot_ids())
 
+    def robot_spec(self, robot_id: str) -> RobotSpec | None:
+        for robot in self.robots:
+            if robot.id == robot_id:
+                return robot
+        return None
+
     def required_status(self, robot_id: str) -> str | None:
         for r in self.robots:
             if r.id == robot_id:
@@ -67,7 +75,13 @@ class FleetManifest:
             out["defaults"] = dict(self.defaults)
         robots: list[Any] = []
         for r in self.robots:
-            if not r.kind and not r.status and not r.params:
+            if (
+                not r.kind
+                and not r.status
+                and not r.params
+                and not r.profile
+                and not r.overrides
+            ):
                 robots.append(r.id)
             else:
                 entry: dict[str, Any] = {"id": r.id}
@@ -75,6 +89,10 @@ class FleetManifest:
                     entry["kind"] = r.kind
                 if r.status:
                     entry["status"] = r.status
+                if r.profile:
+                    entry["profile"] = r.profile
+                if r.overrides:
+                    entry["overrides"] = dict(r.overrides)
                 if r.params:
                     entry["params"] = dict(r.params)
                 robots.append(entry)
@@ -102,12 +120,18 @@ def _parse_robot(raw: Any) -> RobotSpec:
     params = raw.get("params") or {}
     if not isinstance(params, dict):
         raise ValueError("robot params must be an object")
+    overrides = raw.get("overrides") or {}
+    if not isinstance(overrides, dict):
+        raise ValueError("robot overrides must be an object")
     status = raw.get("status")
     kind = raw.get("kind") or raw.get("type")
+    profile = raw.get("profile")
     return RobotSpec(
         id=_normalize_id(str(rid), label="robot id"),
         kind=str(kind) if kind else None,
         status=str(status) if status else None,
+        profile=str(profile) if profile else None,
+        overrides=dict(overrides),
         params=dict(params),
     )
 

@@ -1,8 +1,7 @@
-"""Laptop-side Rosie helpers (teleop, tune, viz).
+"""Laptop-side Rosie helpers (teleop, viz).
 
 On-robot processes live in peer packages:
-- ``rosie.run`` — Linux-native mobile base (``rosie run``)
-- ``rosie.agent`` — ROS 2 bridge (``rosie agent``)
+- ``rosie.watchdog`` — deadman, estop, presence (``rosie robot watchdog``)
 
 These are imported explicitly (e.g. ``from rosie.tools.teleop_twist import
 run_teleop``) so platform-specific dependencies (like ``termios``) are only

@@ -7,7 +7,6 @@ import pytest
 from rosie.connect import (
     AUTO_CONNECT,
     DEFAULT_CONNECT,
-    SOFTAP_CONNECT,
     is_auto_connect,
     resolve_connect,
     zenoh_config_pairs,
@@ -18,40 +17,6 @@ from rosie.discovery import (
     resolve_auto_connect,
     router_announcement,
 )
-from rosie.robot_config import (
-    RobotConfig,
-    generate_robot_config_h,
-    requested_connect,
-    resolve_robot_connect,
-    validate_robot_config,
-)
-
-
-def _mcu(**network):
-    raw = {
-        "robot": "testbot",
-        "fleet": "lab",
-        "network": {"mode": "softap", "ssid": "x", "password": "y", **network},
-        "base": {
-            "type": "diff_drive",
-            "wheel_diameter": 0.068,
-            "wheel_base": 0.13,
-            "ticks_per_rev": 1440,
-        },
-        "motors": {
-            "driver": "tb6612",
-            "pins": {
-                "pwmA": 1,
-                "ain1": 2,
-                "ain2": 3,
-                "pwmB": 4,
-                "bin1": 5,
-                "bin2": 6,
-            },
-        },
-    }
-    validate_robot_config(raw)
-    return RobotConfig(raw=raw)
 
 
 def test_is_auto_connect():
@@ -60,7 +25,7 @@ def test_is_auto_connect():
     assert is_auto_connect("scout")
     assert not is_auto_connect(None)
     assert not is_auto_connect(DEFAULT_CONNECT)
-    assert not is_auto_connect(SOFTAP_CONNECT)
+    assert not is_auto_connect("tcp/192.168.4.2:7447")
 
 
 def test_resolve_connect_preserves_auto(monkeypatch):
@@ -83,83 +48,6 @@ def test_zenoh_config_pairs_auto_scouts():
     assert pairs["mode"] == '"client"'
     assert "connect/endpoints" not in pairs
     assert pairs["scouting/multicast/enabled"] == "true"
-
-
-def test_softap_default_unchanged():
-    cfg = _mcu()
-    assert requested_connect(cfg) == SOFTAP_CONNECT
-    hdr = generate_robot_config_h(cfg)
-    assert 'ROSIE_ZENOH_CONNECT = "tcp/192.168.4.2:7447"' in hdr
-    assert "softap default" in hdr
-
-
-def test_station_auto_bakes_lan_ip():
-    cfg = _mcu(mode="station", connect="auto")
-    assert requested_connect(cfg) == AUTO_CONNECT
-    resolved = resolve_robot_connect(cfg, lan_ips=["192.168.8.2", "10.0.0.5"])
-    assert resolved.locator == "tcp/192.168.8.2:7447"
-    assert resolved.provenance.startswith("auto →")
-    assert "tcp/10.0.0.5:7447" in resolved.candidates
-    hdr = generate_robot_config_h(cfg, lan_ips=["192.168.8.2", "10.0.0.5"])
-    assert 'ROSIE_ZENOH_CONNECT = "tcp/192.168.8.2:7447"' in hdr
-    assert "auto → 192.168.8.2" in hdr
-    assert "tcp/10.0.0.5:7447" in hdr
-
-
-def test_station_omitted_connect_is_auto():
-    cfg = _mcu(mode="station")
-    assert requested_connect(cfg) == AUTO_CONNECT
-
-
-def test_linux_omitted_connect_is_auto():
-    raw = {
-        "robot": "pi1",
-        "fleet": "lab",
-        "platform": "linux",
-        "base": {
-            "type": "diff_drive",
-            "wheel_diameter": 0.068,
-            "wheel_base": 0.13,
-            "ticks_per_rev": 1440,
-        },
-        "motors": {
-            "driver": "tb6612",
-            "pins": {
-                "pwmA": 12,
-                "ain1": 5,
-                "ain2": 6,
-                "pwmB": 13,
-                "bin1": 20,
-                "bin2": 21,
-            },
-        },
-    }
-    validate_robot_config(raw)
-    cfg = RobotConfig(raw=raw)
-    assert cfg.connect == AUTO_CONNECT
-
-
-def test_explicit_connect_wins():
-    cfg = _mcu(mode="station", connect="tcp/10.1.2.3:7447")
-    resolved = resolve_robot_connect(cfg, lan_ips=["192.168.8.2"])
-    assert resolved.locator == "tcp/10.1.2.3:7447"
-    assert resolved.provenance == "robot.yaml"
-    overridden = resolve_robot_connect(
-        cfg, override="tcp/9.9.9.9:7447", lan_ips=["192.168.8.2"]
-    )
-    assert overridden.locator == "tcp/9.9.9.9:7447"
-    assert overridden.provenance == "cli --connect"
-
-
-def test_auto_unresolvable_raises():
-    cfg = _mcu(mode="station", connect="auto")
-    with pytest.raises(ValueError, match="no LAN IPv4"):
-        resolve_robot_connect(cfg, lan_ips=[])
-
-
-def test_invalid_connect_rejected():
-    with pytest.raises(ValueError, match="network.connect"):
-        _mcu(connect="not-a-locator")
 
 
 def test_router_announcement_shape():
@@ -239,23 +127,38 @@ def test_resolve_auto_tries_explicit_first():
     assert seen[0] == "tcp/9.9.9.9:7447"
 
 
-def test_agent_defaults_to_auto():
-    from rosie.agent.config import load_agent_config
+def test_robot_setup_writes_bridge_namespace(tmp_path, monkeypatch):
+    import json
+    from argparse import Namespace
 
-    cfg = load_agent_config(None, robot="r", fleet="lab")
-    assert cfg.connect == "auto"
+    from rosie.cli.robot import cmd_setup
 
-
-def test_agent_install_omits_rosie_connect(tmp_path, monkeypatch):
-    from rosie.agent.config import AgentConfig, write_agent_config
-    from rosie.agent.runner import install_agent
-
-    path = tmp_path / "agent.yaml"
-    write_agent_config(
-        path, AgentConfig(robot="r", fleet="lab", connect="tcp/1.2.3.4:7447")
+    monkeypatch.chdir(tmp_path)
+    code = cmd_setup(
+        Namespace(
+            fleet="lab",
+            robot="bot1",
+            profile="rosmaster_x3",
+            connect="tcp/10.0.0.8:7447",
+            mode="client",
+            config=None,
+            secure=False,
+            triple=None,
+            no_download=True,
+            bridge="zenoh-bridge-ros2dds",
+        )
     )
-    monkeypatch.setenv("HOME", str(tmp_path))
-    unit = install_agent(config_path=path)
-    text = unit.read_text(encoding="utf-8")
-    assert "ROSIE_CONNECT" not in text
-    assert f"--config {path}" in text
+    assert code == 0
+    cfg = json.loads((tmp_path / "rosie-bridge.json5").read_text(encoding="utf-8"))
+    assert cfg["plugins"]["ros2dds"]["namespace"] == "/lab/bot1"
+    assert cfg["rosie"]["connect"] == "tcp/10.0.0.8:7447"
+    assert cfg["mode"] == "client"
+
+
+def test_service_exec_sources_profile_distro():
+    from rosie.cli.robot import service_exec
+
+    line = service_exec("humble", ["rosie", "robot", "watchdog", "--fleet", "lab"])
+    assert line.startswith("/bin/bash -lc ")
+    assert "source /opt/ros/humble/setup.bash" in line
+    assert "rosie robot watchdog --fleet lab" in line

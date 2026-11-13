@@ -14,7 +14,7 @@ import zenoh
 
 from rosie import topics
 from rosie.messages import decode_json
-from rosie.session import Qos, Session
+from rosie.session import Session
 
 
 def _robot_and_rel(key: str, fleet: str | None) -> tuple[str | None, str]:
@@ -186,7 +186,7 @@ class VizBridge:
 
         f = Fleet(fleet, connect=connect)
         self._fleet_obj = f
-        key = f.resolve_key("*/pose")
+        pose_rels = {"pose", "odom", "amcl_pose"}
 
         def on_pose(sample: zenoh.Sample) -> None:
             try:
@@ -195,11 +195,14 @@ class VizBridge:
             except Exception:
                 return
             rid, rel = _robot_and_rel(k, fleet)
-            if not rid or rel != "pose":
+            if not rid or rel not in pose_rels:
                 return
             self._ingest_pose(rid, raw)
 
-        self._subs.append(f.session.declare_subscriber(key, on_pose))
+        for rel in sorted(pose_rels):
+            self._subs.append(
+                f.session.declare_subscriber(f.resolve_key(f"*/{rel}"), on_pose)
+            )
 
         try:
             pkey = f.resolve_key("*/presence")
@@ -238,7 +241,12 @@ class VizBridge:
         def on_pose(msg: dict) -> None:
             self._apply_pose(robot, msg, time.time())
 
-        session.subscribe_json(topics.POSE, on_pose)
+        def on_bytes(raw: bytes) -> None:
+            self._ingest_pose(robot, raw)
+
+        session.subscribe_json("pose", on_pose)
+        session.subscribe_bytes("odom", on_bytes)
+        session.subscribe_bytes("amcl_pose", on_bytes)
 
     def _ensure_camera_sub(self, robot: str) -> None:
         if self._cam_robot == robot:
@@ -249,22 +257,29 @@ class VizBridge:
         self._cam_robot = robot
 
         def on_jpeg(data: bytes) -> None:
-            with self._lock:
-                self._jpeg[robot] = data
+            frame = data
+            if not data.startswith(b"\xff\xd8"):
+                try:
+                    from rosie.ros.codec import decode
 
+                    msg = decode("sensor_msgs/msg/CompressedImage", data)
+                    blob = msg.get("data")
+                    if isinstance(blob, (bytes, bytearray)):
+                        frame = bytes(blob)
+                except Exception:
+                    return
+            with self._lock:
+                self._jpeg[robot] = frame
+
+        keys = (
+            topics.CAMERA_COMPRESSED,
+            "camera/image_raw/compressed",
+        )
         if self._session is not None and self._session.robot == robot:
-            self._session.subscribe_bytes(topics.CAMERA_COMPRESSED, on_jpeg)
-            try:
-                self._session.publish(
-                    topics.CMD,
-                    json.dumps({"op": "camera_enable", "value": True}).encode(),
-                    qos=Qos.COMMAND,
-                )
-            except Exception:
-                pass
+            for key in keys:
+                self._session.subscribe_bytes(key, on_jpeg)
             return
 
-        # Dedicated session for camera under fleet identity
         s = Session(
             robot=robot,
             fleet=self._fleet,
@@ -272,24 +287,31 @@ class VizBridge:
             name="viz-cam",
         )
         self._cam_session = s
-        s.subscribe_bytes(topics.CAMERA_COMPRESSED, on_jpeg)
-        try:
-            s.publish(
-                topics.CMD,
-                json.dumps({"op": "camera_enable", "value": True}).encode(),
-                qos=Qos.COMMAND,
-            )
-        except Exception:
-            pass
+        for key in keys:
+            s.subscribe_bytes(key, on_jpeg)
 
     def _ingest_pose(self, robot: str, raw: bytes) -> None:
-        try:
-            msg = decode_json(raw)
-        except Exception:
+        if raw[:1] == b"{":
+            try:
+                msg = decode_json(raw)
+            except Exception:
+                return
+            if isinstance(msg, dict):
+                self._apply_pose(robot, msg, time.time())
             return
-        if not isinstance(msg, dict):
-            return
-        self._apply_pose(robot, msg, time.time())
+        from rosie.ros.codec import decode
+        from rosie.ros.pose import pose_dict
+
+        for type_name in (
+            "nav_msgs/msg/Odometry",
+            "geometry_msgs/msg/PoseWithCovarianceStamped",
+            "geometry_msgs/msg/PoseStamped",
+        ):
+            try:
+                self._apply_pose(robot, pose_dict(type_name, decode(type_name, raw)), time.time())
+                return
+            except Exception:
+                continue
 
     def _apply_pose(self, robot: str, msg: dict, t: float) -> None:
         import math

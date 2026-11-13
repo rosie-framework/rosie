@@ -1,4 +1,4 @@
-"""Rosie — lightweight ROS2-inspired framework over Zenoh."""
+"""Rosie — a fleet layer and laptop tools for ROS 2 robots."""
 
 from .messages import decode_json, encode_json, stamp_now, with_stamp
 from .session import Qos, Session
@@ -10,8 +10,7 @@ from .manifest import (
     resolve_manifest,
 )
 from .mobile_robot import MobileRobot
-from .robot_config import RobotConfig, load_robot_config
-from . import std_msgs
+from . import fleet_msgs
 from . import topics
 
 __all__ = [
@@ -24,14 +23,12 @@ __all__ = [
     "load_manifest",
     "resolve_manifest",
     "MobileRobot",
-    "RobotConfig",
-    "load_robot_config",
     "topics",
     "encode_json",
     "decode_json",
     "stamp_now",
     "with_stamp",
-    "std_msgs",
+    "fleet_msgs",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

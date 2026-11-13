@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from pathlib import Path
 
 
 def _parse_waypoints(cmd: str) -> list[tuple[float, float]] | None:
@@ -24,12 +23,6 @@ def _parse_waypoints(cmd: str) -> list[tuple[float, float]] | None:
 def cmd_drive(args: argparse.Namespace) -> int:
     """Interactive REPL over MobileRobot helpers (drive_route, teleop, camera, …)."""
     from rosie.mobile_robot import MobileRobot
-    from rosie.robot_config import find_robot_yaml
-
-    config = args.config
-    if not config:
-        found = find_robot_yaml(Path(args.dir))
-        config = str(found) if found else None
 
     print("Opening Rosie session (zenohd / `rosie router` must be running)...")
     try:
@@ -38,7 +31,7 @@ def cmd_drive(args: argparse.Namespace) -> int:
             fleet=args.fleet,
             connect=args.connect,
             name="drive",
-            config_path=config,
+            profile=args.profile,
             secure=bool(getattr(args, "secure", False)),
         )
     except Exception as e:
@@ -52,15 +45,10 @@ def cmd_drive(args: argparse.Namespace) -> int:
             f"Linked. pose x={p.get('x', 0):.3f} y={p.get('y', 0):.3f} "
             f"mode={p.get('mode', '?')}"
         )
-        try:
-            bot.zero()
-            print("Pose zero requested.")
-        except Exception as e:
-            print(f"  warning: zero failed: {e}")
     else:
         print("No pose yet — CLI is up, but the robot is not publishing.")
 
-    print("Commands: x y [x y ...] | teleop | snap | cam | zero | imu | stop | quit")
+    print("Commands: x y [x y ...] | teleop | snap | cam | stop | quit")
     while True:
         try:
             cmd = input("target> ").strip()
@@ -74,14 +62,6 @@ def cmd_drive(args: argparse.Namespace) -> int:
         if low == "stop":
             bot.stop()
             print("  STOP sent.")
-            continue
-        if low == "zero":
-            bot.zero()
-            print("  pose zeroed.")
-            continue
-        if low == "imu":
-            bot.set_heading_source(None)
-            print("  heading_source toggle sent.")
             continue
         if low == "snap":
             try:
@@ -118,32 +98,27 @@ def cmd_drive(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     p_drive = sub.add_parser(
         "drive",
-        help="interactive REPL over MobileRobot nav helpers for a MobileBase robot",
+        help="interactive drive REPL (teleop, drive_to, snap) for one robot",
     )
     p_drive.add_argument(
         "--robot",
         default=os.environ.get("ROSIE_ROBOT"),
-        help="robot id (default: robot.yaml / ROSIE_ROBOT)",
+        help="robot id (default: ROSIE_ROBOT)",
     )
     p_drive.add_argument(
         "--fleet",
         default=os.environ.get("ROSIE_FLEET"),
-        help="fleet id (default: robot.yaml / ROSIE_FLEET)",
+        help="fleet id (default: ROSIE_FLEET)",
+    )
+    p_drive.add_argument(
+        "--profile",
+        default="default_ros2",
+        help="robot profile (default: default_ros2)",
     )
     p_drive.add_argument("--connect", default=None, help="override ROSIE_CONNECT")
     p_drive.add_argument(
         "--secure",
         action="store_true",
         help="authenticate to a secure router (usrpwd / host secret)",
-    )
-    p_drive.add_argument(
-        "--config",
-        default=None,
-        help="path to robot.yaml (default: ./robot.yaml if present)",
-    )
-    p_drive.add_argument(
-        "--dir",
-        default=".",
-        help="directory to search for robot.yaml (default: cwd)",
     )
     p_drive.set_defaults(func=cmd_drive)

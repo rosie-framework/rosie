@@ -1,32 +1,27 @@
-# Docs
+# Rosie documentation
 
-## Start here
+Rosie is a fleet layer for robots that run ROS 2. Start here: [Getting started](getting-started.md).
 
-- [Getting started](getting-started.md)
-- [Motivation](motivation.md) — differentiators; vs ROS 2 / Open-RMF / FreeFleet
-- [Architecture](architecture.md) — bus / Session / Topic; topology; framework vs robot
-- [Conventions](conventions.md) — topics, identity, fleet robot contract
-- [Messages](messages.md)
+- [Architecture](architecture.md) — laptop, router, bridge, watchdog
+- [Why Rosie](motivation.md) — when to use it instead of plain ROS 2
+- [Fleet contract](conventions.md) — what a robot must honour
 
-## Robots
+Fleet:
 
-- [Bring Your Own Robot](robots/byor.md) — native MCU / Linux bring-up
-- [Robots: native vs bridge](robots/bridges.md) — `rosie run` vs `rosie agent`
-- [Mobile base](robots/mobile-base.md) — shared contract, DiffDrive / `rosie run` topics
-- [Drivers](robots/drivers.md) — inventory (`rosie drivers list`)
-- [Camera](robots/camera.md) — JPEG frames on `camera/compressed`, frame rate, host viewers
-- [Firmware](robots/firmware.md) — MCU DiffDriveStack / PlatformIO / advanced Session
-- [Linux run](robots/linux-run.md) — `rosie run`, Pi drivers, dry-run
+- [Security](fleet/security.md) — secure mode
+- [Networking](fleet/networking.md) — router, client, peer
+- [Management](fleet/management.md) — list, wait, estop
 
-## Host (laptop)
+Laptop tools:
 
-- [Writing sessions](host/writing-sessions.md) — Python `Session`
-- [MobileRobot](host/mobile-robot.md) — host MobileBase client API
-- [Fleet](host/fleet.md) — host fleet discovery / wait / estop API
-- [Viz](host/viz.md) — `rosie viz` browser map / bag scrub
+- [MobileRobot](host/mobile-robot.md)
+- [Fleet](host/fleet.md)
+- [Viz](host/viz.md)
+- [Sessions](host/writing-sessions.md)
 
-## Fleet
+On the robot:
 
-- [Networking](fleet/networking.md) — dedicated AP vs SoftAP
-- [Management](fleet/management.md) — init / add / router
-- [Security](fleet/security.md) — open vs secure, allowlist
+- [Add a ROS 2 robot](robots/adding-a-robot.md)
+- [Safety](robots/safety.md)
+- [Microcontrollers](robots/microcontrollers.md)
+- [ROS on the laptop](robots/laptop-ros.md) — optional RViz

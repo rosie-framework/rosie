@@ -32,17 +32,24 @@ def resolve_connect(connect: str | None = None) -> str:
     return DEFAULT_CONNECT
 
 
-def zenoh_config_pairs(connect: str) -> list[tuple[str, str]]:
-    """Pure Zenoh config entries for a client session.
+def zenoh_config_pairs(connect: str, mode: str = "client") -> list[tuple[str, str]]:
+    """Zenoh config entries for ``client``, ``peer``, or ``router``.
 
     Explicit locators disable multicast scouting so the topology matches the
     config. ``auto`` omits endpoints and enables scouting (fallback when
-    candidate enumeration is unavailable).
+    candidate enumeration is unavailable). ``peer`` and ``router`` also listen
+    so a robot can run without a fleet router.
     """
-    pairs: list[tuple[str, str]] = [("mode", '"client"')]
+    mode = str(mode or "client").strip().lower()
+    if mode not in ("client", "peer", "router"):
+        raise ValueError("mode must be client, peer, or router")
+    pairs: list[tuple[str, str]] = [("mode", f'"{mode}"')]
+    if mode in ("peer", "router"):
+        pairs.append(("listen/endpoints", '["tcp/0.0.0.0:7447"]'))
     if is_auto_connect(connect):
         pairs.append(("scouting/multicast/enabled", "true"))
         return pairs
-    pairs.append(("connect/endpoints", f'["{connect}"]'))
+    if connect:
+        pairs.append(("connect/endpoints", f'["{connect}"]'))
     pairs.append(("scouting/multicast/enabled", "false"))
     return pairs

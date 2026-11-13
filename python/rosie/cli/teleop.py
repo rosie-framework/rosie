@@ -21,12 +21,13 @@ def cmd_teleop(args: argparse.Namespace) -> int:
         v_fwd=args.v_fwd,
         v_turn=args.v_turn,
         pub_hz=args.hz,
+        profile=args.profile,
     )
     return 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:
-    p_tele = sub.add_parser("teleop", help="WASD keyboard teleop → <robot>/cmd_vel")
+    p_tele = sub.add_parser("teleop", help="WASD keyboard teleop on the profile velocity topic")
     p_tele.add_argument(
         "--robot",
         default=os.environ.get("ROSIE_ROBOT", "robot"),
@@ -45,4 +46,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     p_tele.add_argument("--v-fwd", type=float, default=0.25, help="forward speed m/s")
     p_tele.add_argument("--v-turn", type=float, default=1.0, help="yaw rate rad/s")
     p_tele.add_argument("--hz", type=float, default=10.0, help="publish rate")
+    p_tele.add_argument(
+        "--profile",
+        default="default_ros2",
+        help="robot profile (default: default_ros2)",
+    )
     p_tele.set_defaults(func=cmd_teleop)

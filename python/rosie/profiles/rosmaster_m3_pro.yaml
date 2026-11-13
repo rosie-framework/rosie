@@ -1,0 +1,22 @@
+# Yahboom ROSMASTER M3 Pro, vendor Humble image.
+# The STM32 motor board is behind the vendor ROS driver (micro-ROS on the
+# robot). It is not a fleet member. Chassis topic is /cmd_vel; EKF remaps
+# filtered odometry to /odom.
+distro: humble
+transport: bridge
+cmd_vel:
+  topic: /cmd_vel
+  type: geometry_msgs/msg/Twist
+pose:
+  topic: /odom
+  type: nav_msgs/msg/Odometry
+nav:
+  action: /navigate_to_pose
+  frame_id: map
+link_loss: stop
+link_loss_s: 1.0
+bridge:
+  allow:
+    publishers: ["^/odom$", "^/amcl_pose$", "^.*/_action/status$"]
+    subscribers: ["^/cmd_vel$"]
+    action_servers: ["^/navigate_to_pose$"]

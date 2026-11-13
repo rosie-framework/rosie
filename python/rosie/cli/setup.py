@@ -17,7 +17,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
     download_zenohd(force=args.force, quiet=False)
     print("Host setup complete (zenohd cached).")
-    print("Tip: for MCU projects, run `rosie mcu setup` in the robot directory.")
+    print("On a robot: `rosie robot setup --fleet <fleet> --robot <id> --profile <name>`.")
     return 0
 
 

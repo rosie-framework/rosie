@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 import socket
 
@@ -31,20 +30,6 @@ def _tcp_reachable(host: str, port: int, timeout: float = 0.5) -> bool:
             return True
     except OSError:
         return False
-
-
-def _list_serial_ports() -> list[str]:
-    try:
-        from serial.tools import list_ports  # type: ignore
-
-        return [p.device for p in list_ports.comports()]
-    except Exception:
-        pass
-    patterns = ["/dev/cu.usb*", "/dev/ttyACM*", "/dev/ttyUSB*"]
-    found: list[str] = []
-    for pat in patterns:
-        found.extend(sorted(glob.glob(pat)))
-    return found
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -122,37 +107,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     lan = local_ipv4s()
     if lan:
         print(
-            "[--] MCU station robots: network.connect: auto (codegen bakes LAN IP) "
-            "or "
+            "[--] robot bridge connect: auto, or "
             + " or ".join(f"tcp/{ip}:7447" for ip in lan[:3])
-        )
-    if any(ip.startswith("192.168.4.") for ip in lan):
-        check("SoftAP-like address (one-robot AP)", True, ", ".join(lan))
-    else:
-        print(
-            f"[--] SoftAP-like address — local IPv4: {', '.join(lan) or 'none'} "
-            "(one-robot SoftAP often uses 192.168.4.2; multi-robot fleets use a "
-            "dedicated AP — see docs/fleet/networking.md)"
-        )
-
-    ports = _list_serial_ports()
-    if ports:
-        check(
-            "serial ports",
-            True,
-            ", ".join(ports[:6]) + ("…" if len(ports) > 6 else ""),
-        )
-    else:
-        print("[--] serial ports — none detected (ok if no MCU plugged in)")
-
-    try:
-        import platformio  # noqa: F401
-
-        check("platformio (rosie-framework[mcu])", True)
-    except ImportError:
-        print(
-            "[--] platformio — not installed "
-            '(ok for host-only; use: pip install "rosie-framework[mcu]")'
         )
 
     print()

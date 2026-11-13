@@ -38,6 +38,11 @@ def cmd_bag_record(args: argparse.Namespace) -> int:
         if args.verbose:
             print(key, file=sys.stderr)
 
+    type_map = None
+    if args.profile and args.robot:
+        from rosie.profiles import load_profile
+
+        type_map = load_profile(args.profile).type_map(fleet_id, args.robot)
     bag.record(
         fleet=fleet_id,
         output=args.output,
@@ -45,6 +50,7 @@ def cmd_bag_record(args: argparse.Namespace) -> int:
         connect=args.connect,
         duration=args.duration,
         on_sample=_progress if args.verbose else None,
+        type_map=type_map,
     )
     return 0
 
@@ -126,6 +132,8 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="stop after this many seconds (default: until Ctrl+C)",
     )
     p_brec.add_argument("-v", "--verbose", action="store_true", help="print keys as recorded")
+    p_brec.add_argument("--profile", default=None, help="profile used to label ROS types in the bag")
+    p_brec.add_argument("--robot", default=None, help="robot id for --profile type labels")
     p_brec.set_defaults(func=cmd_bag_record)
 
     p_bplay = bag_sub.add_parser("play", help="replay a .rosiebag onto the bus")
